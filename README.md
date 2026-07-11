@@ -87,6 +87,23 @@ The build strips jqjs' `export` lines and appends a global assignment. That
 shim assumes the exported names stay `compile, prettyPrint, compileNode,
 formats` — after a version bump, smoke-test the query bar in case they changed.
 
+### Versioning
+
+The built `manifest.json`'s `version` is `MAJOR.MINOR.PATCH.DISTANCE` —
+Chrome requires 1-4 integer components — derived from `git describe --tags
+--long` via `scripts/build-release.sh`:
+
+```sh
+./scripts/build-release.sh   # tag first: git tag v1.2.3; needs --impure (reads git outside the sandbox)
+```
+
+That script maps e.g. `v1.2.3-4-gabc123` → `1.2.3.4` and fails if the repo
+has no tags yet — tag a release before running it. A plain `nix build` (no
+tag, no `--impure`) instead uses the pure dev fallback `1.0.<revCount>`
+(`git log --oneline | wc -l`-equivalent commit count), or `1.0.0` on a dirty
+tree. Nothing is ever committed back to `src/manifest.json`, which keeps a
+`"0.0.0"` placeholder that the build overwrites.
+
 ## Try it locally (dev)
 
 1. `chrome://extensions` → enable **Developer mode**

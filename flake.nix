@@ -82,10 +82,12 @@
           pname = "json-viewer-extension";
           inherit version;
           src = ./.;
-          nativeBuildInputs = [ pkgs.typescript pkgs.zip pkgs.librsvg ];
+          nativeBuildInputs = [ pkgs.typescript pkgs.esbuild pkgs.zip pkgs.librsvg ];
           buildPhase = ''
             runHook preBuild
-            tsc -p tsconfig.json
+            mkdir -p dist
+            esbuild src/content.ts --bundle --format=iife --platform=browser \
+              --target=es2020 --outfile=dist/content.js
             cp src/content.css src/manifest.json dist/
             substituteInPlace dist/manifest.json \
               --replace-quiet '"version": "0.0.0"' '"version": "${version}"'

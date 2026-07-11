@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "larry",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "description": "Pretty-prints, highlights, collapses, and queries (jq) JSON pages. No permissions, no network.",
   "action": { "default_title": "larry — show JSON viewer" },
   "content_scripts": [

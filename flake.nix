@@ -71,18 +71,24 @@
         };
     }
     // flake-utils.lib.eachDefaultSystem (system:
-      let pkgs = nixpkgs.legacyPackages.${system};
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        version =
+          let env = builtins.getEnv "LARRY_VERSION";
+          in if env != "" then env else "1.0.${toString (self.revCount or 0)}";
       in {
         # ---- Build the loadable / uploadable extension ------------------
         packages.default = pkgs.stdenv.mkDerivation {
           pname = "json-viewer-extension";
-          version = "1.0.0";
+          inherit version;
           src = ./.;
           nativeBuildInputs = [ pkgs.typescript pkgs.zip ];
           buildPhase = ''
             runHook preBuild
             tsc -p tsconfig.json
             cp src/content.css src/manifest.json dist/
+            substituteInPlace dist/manifest.json \
+              --replace-quiet '"version": "0.0.0"' '"version": "${version}"'
             # jqjs ships as an ES module, but a content script can't be one, so
             # strip its `export` lines and expose the API as a global instead.
             grep -v '^export ' ${jqjs}/jq.js > dist/jqjs.js

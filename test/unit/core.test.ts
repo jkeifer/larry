@@ -7,6 +7,7 @@ import {
   tryParseNdjson,
   searchableText,
   pathToJq,
+  startsWithJsonChar,
 } from "../../src/core";
 
 describe("kindOf", () => {
@@ -153,5 +154,40 @@ describe("pathToJq", () => {
 
   it("handles a simple single-key path", () => {
     expect(pathToJq('$["stac_version"]')).toBe(".stac_version");
+  });
+});
+
+describe("startsWithJsonChar", () => {
+  it("is true for text starting with an object brace", () => {
+    expect(startsWithJsonChar('{"a": 1}')).toBe(true);
+  });
+
+  it("is true for text starting with an array bracket", () => {
+    expect(startsWithJsonChar("[1, 2, 3]")).toBe(true);
+  });
+
+  it("is true for text starting with a quote", () => {
+    expect(startsWithJsonChar('"hello"')).toBe(true);
+  });
+
+  it("ignores leading whitespace", () => {
+    expect(startsWithJsonChar('   \n\t {"a": 1}')).toBe(true);
+    expect(startsWithJsonChar("  [1]")).toBe(true);
+    expect(startsWithJsonChar('\n"x"')).toBe(true);
+  });
+
+  it("is false for text starting with a letter or digit", () => {
+    expect(startsWithJsonChar("hello world")).toBe(false);
+    expect(startsWithJsonChar("42")).toBe(false);
+  });
+
+  it("is false for HTML", () => {
+    expect(startsWithJsonChar("<html><body>hi</body></html>")).toBe(false);
+    expect(startsWithJsonChar("<!DOCTYPE html>")).toBe(false);
+  });
+
+  it("is false for empty or all-whitespace text", () => {
+    expect(startsWithJsonChar("")).toBe(false);
+    expect(startsWithJsonChar("   \n\t  ")).toBe(false);
   });
 });

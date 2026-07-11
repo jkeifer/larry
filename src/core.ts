@@ -95,6 +95,18 @@ export function pathToJq(path: string): string {
   return out === "" ? "." : out;
 }
 
+// True when the trimmed text starts with a character that could begin a JSON
+// value's outermost token: an object `{`, an array `[`, or a quoted string
+// `"`. (Bare numbers/booleans/null are deliberately excluded — those are
+// indistinguishable from ordinary prose at a glance, so requiring one of
+// these three keeps the forced-activation probe conservative.) Used to
+// decide whether a non-JSON-content-typed page's lone body might still be a
+// raw JSON/NDJSON payload worth activating on.
+export function startsWithJsonChar(text: string): boolean {
+  const t = text.trimStart();
+  return t.startsWith("{") || t.startsWith("[") || t.startsWith('"');
+}
+
 // Returns the parsed records if `raw` is newline-delimited JSON (>=2 records,
 // every non-blank line valid), else null.
 export function tryParseNdjson(raw: string): Json[] | null {

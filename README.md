@@ -17,7 +17,10 @@ syntax-highlights, makes URLs clickable, and collapses/expands — built to be
   full expansion would exceed ~100k rows does it collapse the deepest levels to
   stay within budget.
 - **Inert on non-JSON pages.** It returns immediately unless the response
-  `Content-Type` ends in `json`.
+  `Content-Type` ends in `json` — or, as a narrow fallback, the page's whole
+  body is a lone JSON/NDJSON payload served with the wrong content-type (see
+  **Forced activation** below). Ordinary HTML pages are never touched and
+  never re-fetched.
 
 ## Using it
 
@@ -50,6 +53,21 @@ syntax-highlights, makes URLs clickable, and collapses/expands — built to be
   per-record streaming. The toolbar info line shows `NDJSON` when this
   happened. A response that fails both whole-document and NDJSON parsing still
   shows the original parse error.
+- **Forced activation on non-JSON content-types.** larry's activation gate is
+  narrow by design (`Content-Type` ending in `json`), but some servers — and
+  every `file://` page saved with the "wrong" extension — serve raw JSON or
+  NDJSON as `text/plain` or similar. larry still activates in that case **if**
+  the page's whole body is a lone `<pre>`/text node whose trimmed content
+  starts with `{`, `[`, or `"` — i.e. it still looks like a raw JSON payload,
+  not markup. This check is cheap and conservative: real HTML pages have many
+  top-level elements and are never re-checked past a single element-count
+  comparison, so they're left completely alone (no parse attempt, no network
+  request). If the forced attempt's content still fails to parse as JSON or
+  NDJSON, larry quietly stands down instead of showing an error screen — it
+  only ever shows an error for pages it was confident were JSON to begin
+  with (a correct `application/json`/`+json` content-type). Combine this with
+  **Run only when you click it** below for a manual "force it" control on any
+  page, JSON or not.
 
 ## Layout
 
@@ -149,6 +167,12 @@ script until you click larry's icon on a page, and injects it (JS + CSS) at that
 point — no scripting APIs or extra permissions involved. Trade-off: click-to-run
 happens *after* the page has painted, so you'll briefly see the raw JSON before
 it's replaced (the pre-paint no-flash swap only happens in auto-run mode).
+
+In this mode the icon click is also your **manual "force it" control**: on a
+page that auto-run would have skipped (e.g. JSON served as `text/plain`, where
+the forced-activation fallback above still applies since it doesn't depend on
+`document_start`), clicking the icon injects larry and it re-evaluates the same
+lone-JSON-body check against the already-loaded page.
 
 ## Publish (strategy A: force-install by ID on every machine)
 

@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 const root = new URL("./fixtures/", import.meta.url).pathname;
-const types = { ".json": "application/json", ".ndjson": "text/plain" };
+const types = { ".json": "application/json", ".ndjson": "text/plain", ".html": "text/html" };
 createServer(async (req, res) => {
   // Generated on the fly so no multi-MB fixture is committed to the repo.
   if (req.url === "/big-array.json") {
@@ -22,6 +22,15 @@ createServer(async (req, res) => {
   if (req.url === "/malformed-as-json") {
     res.setHeader("content-type", "application/json");
     res.end('{"a": 1, "b": ');
+    return;
+  }
+  // A JSON body served with the "wrong" content-type (text/plain) — the
+  // realistic trigger for Task 11's forced-activation fallback, since the
+  // activation gate's content-type check alone would never let larry run on
+  // this page.
+  if (req.url === "/catalog-as-text-plain") {
+    res.setHeader("content-type", "text/plain");
+    res.end(await readFile(join(root, "catalog.json")));
     return;
   }
   try {

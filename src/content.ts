@@ -40,6 +40,7 @@ import {
   URL_RE,
   tryParseNdjson,
   pathToJq,
+  startsWithJsonChar,
 } from "./core";
 
 (() => {
@@ -48,7 +49,36 @@ import {
   // ---- Activation gate -----------------------------------------------------
   const contentType = (document.contentType || "").toLowerCase();
   const looksLikeJson = contentType === "application/json" || contentType.endsWith("+json");
-  if (!looksLikeJson) return;
+
+  // Forced-activation fallback: some servers (and all file:// pages saved
+  // with the "wrong" extension) serve raw JSON/NDJSON with a non-JSON
+  // content-type (commonly text/plain). If the content-type gate alone
+  // rejected those, larry would never run. So when the content-type doesn't
+  // look like JSON, we additionally probe whether the page *body* looks like
+  // a lone JSON/NDJSON payload — cheap, and false on ordinary HTML (which has
+  // many top-level elements).
+  if (!looksLikeJson && !looksLikeLoneJsonBody()) return;
+
+  // True when the page is very likely a raw JSON/NDJSON payload served with a
+  // non-JSON content-type: a body that is empty (still loading) or a single
+  // text/<pre> node whose trimmed content starts with { [ or " . Cheap on
+  // HTML pages (bails on element count before ever touching text content).
+  //
+  // Runs twice in the forced (non-JSON-content-type) path: once here at
+  // document_start — where the body is typically still empty, so this
+  // conservatively returns true and defers the real decision — and again in
+  // activate() once the body is populated, which is what actually decides
+  // whether to proceed. See the pre-getRawText guard in activate() for why
+  // that second check is load-bearing.
+  function looksLikeLoneJsonBody(): boolean {
+    const body = document.body;
+    if (!body) return true; // document_start: decide later in activate()
+    if (body.childElementCount > 1) return false;
+    const el = body.firstElementChild;
+    if (el && el.tagName !== "PRE") return false;
+    const text = el?.textContent ?? body.textContent ?? "";
+    return startsWithJsonChar(text);
+  }
 
   // Add the marker synchronously (we are at document_start) so content.css can
   // hide the browser's raw text node before it paints — no flash.
@@ -1045,6 +1075,27 @@ import {
   }
 
   async function activate(): Promise<void> {
+    // `forced` = this run was let through by the lone-JSON-body fallback, not
+    // a genuine JSON content-type. Reuses the already-computed `looksLikeJson`
+    // rather than re-deriving it from `document.contentType` a second time.
+    const forced = !looksLikeJson;
+
+    if (forced) {
+      // CRITICAL: re-check the predicate now that the body is populated
+      // (document_start saw an empty body and conservatively returned true).
+      // getRawText()'s fallback is a fetch() of the page's own URL when the
+      // body has more than one child element — exactly what a real HTML page
+      // looks like by DOMContentLoaded. Without this re-check, EVERY ordinary
+      // HTML page would sail through the document_start gate and then
+      // re-fetch itself here before bailing, which is wasteful and wrong.
+      // Bail silently, before ever calling getRawText/fetch, the moment the
+      // populated body no longer looks like a lone JSON/NDJSON payload.
+      if (!looksLikeLoneJsonBody()) {
+        document.documentElement.classList.remove("jv-active");
+        return;
+      }
+    }
+
     const raw = await getRawText();
 
     // Paint a loading state before the blocking parse.
@@ -1063,6 +1114,11 @@ import {
       if (nd) {
         data = nd;
         note = "NDJSON";
+      } else if (forced) {
+        // A forced attempt on an ordinary non-JSON text page: don't hijack it
+        // with an error screen, just quietly stand down.
+        document.documentElement.classList.remove("jv-active");
+        return;
       } else {
         renderParseError(raw, err);
         return;

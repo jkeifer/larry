@@ -12,7 +12,13 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, jqjs }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      jqjs,
+    }:
     let
       # Options shared by the NixOS and darwin modules. `extensionId` is the
       # 32-char ID the Chrome Web Store assigns once you publish (strategy A).
@@ -40,17 +46,18 @@
     in
     {
       # ---- Declarative force-install: NixOS -------------------------------
-      nixosModules.default = { config, lib, ... }:
-        let cfg = config.programs.jsonViewer;
-        in {
+      nixosModules.default =
+        { config, lib, ... }:
+        let
+          cfg = config.programs.jsonViewer;
+        in
+        {
           options.programs.jsonViewer = commonOptions lib;
           config = lib.mkIf cfg.enable {
             # Chromium and Google Chrome read managed policy from these dirs.
             environment.etc = {
-              "chromium/policies/managed/json-viewer.json".text =
-                builtins.toJSON (policyAttrs cfg);
-              "opt/chrome/policies/managed/json-viewer.json".text =
-                builtins.toJSON (policyAttrs cfg);
+              "chromium/policies/managed/json-viewer.json".text = builtins.toJSON (policyAttrs cfg);
+              "opt/chrome/policies/managed/json-viewer.json".text = builtins.toJSON (policyAttrs cfg);
             };
           };
         };
@@ -60,29 +67,40 @@
       # `defaults`. Verify at chrome://policy that the extension shows up. If it
       # doesn't, macOS is only honoring policy delivered as a configuration
       # profile (.mobileconfig) — see README for that fallback.
-      darwinModules.default = { config, lib, ... }:
-        let cfg = config.programs.jsonViewer;
-        in {
+      darwinModules.default =
+        { config, lib, ... }:
+        let
+          cfg = config.programs.jsonViewer;
+        in
+        {
           options.programs.jsonViewer = commonOptions lib;
           config = lib.mkIf cfg.enable {
-            system.defaults.CustomSystemPreferences."com.google.Chrome" =
-              policyAttrs cfg;
+            system.defaults.CustomSystemPreferences."com.google.Chrome" = policyAttrs cfg;
           };
         };
     }
-    // flake-utils.lib.eachDefaultSystem (system:
+    // flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         version =
-          let env = builtins.getEnv "LARRY_VERSION";
-          in if env != "" then env else "1.0.${toString (self.revCount or 0)}";
-      in {
+          let
+            env = builtins.getEnv "LARRY_VERSION";
+          in
+          if env != "" then env else "1.0.${toString (self.revCount or 0)}";
+      in
+      {
         # ---- Build the loadable / uploadable extension ------------------
         packages.default = pkgs.stdenv.mkDerivation {
           pname = "json-viewer-extension";
           inherit version;
           src = ./.;
-          nativeBuildInputs = [ pkgs.typescript pkgs.esbuild pkgs.zip pkgs.librsvg ];
+          nativeBuildInputs = [
+            pkgs.typescript
+            pkgs.esbuild
+            pkgs.zip
+            pkgs.librsvg
+          ];
           buildPhase = ''
             runHook preBuild
             mkdir -p dist
@@ -112,8 +130,18 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [ pkgs.typescript pkgs.nodejs pkgs.librsvg ];
-          shellHook = ''echo "tsc -p tsconfig.json --watch  # dev build into ./dist"'';
+          packages = [
+            pkgs.typescript
+            pkgs.nodejs
+            pkgs.esbuild
+            pkgs.librsvg
+            pkgs.prek
+            pkgs.nixfmt-rfc-style
+          ];
+          shellHook = ''
+            echo "larry dev — nix build | npm test | npm run e2e | prek run --all-files"
+          '';
         };
-      });
+      }
+    );
 }

@@ -1,0 +1,20 @@
+{
+  "type": "Catalog",
+  "id": "sample-catalog",
+  "stac_version": "1.0.0",
+  "description": "A tiny STAC-shaped fixture used by unit and e2e tests.",
+  "conformsTo": [
+    "https://api.stacspec.org/v1.0.0/core",
+    "https://api.stacspec.org/v1.0.0/collections"
+  ],
+  "links": [
+    { "rel": "self", "href": "https://example.com/catalog.json", "type": "application/json" },
+    { "rel": "root", "href": "https://example.com/catalog.json", "type": "application/json" },
+    { "rel": "child", "href": "https://example.com/collections/a", "type": "application/json" },
+    { "rel": "child", "href": "https://example.com/collections/b", "type": "application/json" }
+  ],
+  "meta": {
+    "count": 2,
+    "nested": { "a": 1, "b": [1, 2, 3] }
+  }
+}

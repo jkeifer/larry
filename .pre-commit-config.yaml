@@ -1,0 +1,26 @@
+repos:
+  - repo: local
+    hooks:
+      - id: typecheck
+        name: tsc --noEmit
+        language: system
+        entry: tsc --noEmit -p tsconfig.json
+        pass_filenames: false
+        files: '\.ts$'
+      - id: unit
+        name: vitest (core only; jqjs.test.ts needs `nix build` first — full suite runs in CI)
+        language: system
+        entry: bash -c 'npx vitest run test/unit/core.test.ts'
+        pass_filenames: false
+        files: '\.(ts)$'
+      - id: nixfmt
+        name: nixfmt
+        language: system
+        entry: nixfmt
+        files: '\.nix$'
+      - id: manifest-json
+        name: manifest valid JSON
+        language: system
+        entry: node -e "JSON.parse(require('fs').readFileSync('src/manifest.json','utf8'))"
+        pass_filenames: false
+        files: 'src/manifest\.json$'

@@ -151,6 +151,7 @@ import {
 
     // ---- Keyboard focus (virtual — real DOM focus fights virtualization) --
     private focusIndex = 0;
+    private navActive = false;   // true once the user presses a nav key; gates the focus ring
 
     constructor(data: Json, raw: string, note = "") {
       this.data = data;
@@ -191,28 +192,19 @@ import {
       window.addEventListener("keydown", (e) => {
         const t = e.target as HTMLElement;
         if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+        if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Enter"].includes(e.key)) return;
+        e.preventDefault();
+        // Reveal the focus ring on first use — it's hidden until the user
+        // actually starts navigating, so it doesn't sit on the root at load.
+        this.navActive = true;
         switch (e.key) {
-          case "ArrowDown":
-            e.preventDefault();
-            this.moveFocus(1);
-            break;
-          case "ArrowUp":
-            e.preventDefault();
-            this.moveFocus(-1);
-            break;
-          case "ArrowRight":
-            e.preventDefault();
-            this.focusExpand();
-            break;
-          case "ArrowLeft":
-            e.preventDefault();
-            this.focusCollapse();
-            break;
-          case "Enter":
-            e.preventDefault();
-            this.toggle(this.focusIndex);
-            break;
+          case "ArrowDown": this.moveFocus(1); break;
+          case "ArrowUp": this.moveFocus(-1); break;
+          case "ArrowRight": this.focusExpand(); break;
+          case "ArrowLeft": this.focusCollapse(); break;
+          case "Enter": this.toggle(this.focusIndex); break;
         }
+        this.scheduleRender(); // ensure the ring appears even if focus didn't move
       });
 
       this.autoExpand();
@@ -924,7 +916,7 @@ import {
       el.setAttribute("role", "treeitem");
       el.setAttribute("aria-level", String(row.depth + 1));
       if (row.expandable) el.setAttribute("aria-expanded", String(this.expanded.has(row.path)));
-      if (index === this.focusIndex) el.classList.add("jv-focus");
+      if (this.navActive && index === this.focusIndex) el.classList.add("jv-focus");
 
       // caret
       const caret = document.createElement("span");

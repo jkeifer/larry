@@ -35,6 +35,10 @@ test.describe("keyboard navigation + ARIA tree roles", () => {
 
     const focusRing = () => page.locator(".jv-focus");
 
+    // The focus ring is hidden until the user actually navigates — it must not
+    // sit on the root at load, even after the tree is focused.
+    await expect(focusRing()).toHaveCount(0);
+
     // ArrowDown moves focus to row 1, skipping no closing rows at the top.
     await page.keyboard.press("ArrowDown");
     await expect(focusRing()).toHaveAttribute("data-index", "1");

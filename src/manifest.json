@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Trustworthy JSON Viewer",
+  "name": "larry",
   "version": "1.0.0",
-  "description": "Pretty-prints, highlights, and collapses JSON pages. No permissions, no network, no dependencies.",
+  "description": "Pretty-prints, highlights, collapses, and queries (jq) JSON pages. No permissions, no network.",
+  "action": { "default_title": "larry — show JSON viewer" },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["jqjs.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_start"
     }

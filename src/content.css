@@ -76,6 +76,52 @@ html.jv-active {
 .jv-btn:disabled { opacity: 0.4; cursor: default; }
 .jv-btn:disabled:hover { background: transparent; }
 
+.jv-query {
+  flex: 0 0 auto;
+  background: var(--jv-bar);
+  border-bottom: 1px solid var(--jv-line);
+}
+.jv-query-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+}
+.jv-query-label { color: var(--jv-muted); }
+.jv-query-input {
+  flex: 1 1 auto;
+  font: inherit;
+  color: var(--jv-fg);
+  background: var(--jv-bg);
+  border: 1px solid var(--jv-line);
+  border-radius: 5px;
+  padding: 3px 8px;
+}
+.jv-query-input:focus-visible { outline: 2px solid var(--jv-link); outline-offset: 1px; }
+.jv-query-status { color: var(--jv-muted); white-space: nowrap; }
+.jv-query-status.jv-query-err { color: var(--jv-bool); }
+
+.jv-query-drawer { display: none; padding: 4px 12px 10px; }
+.jv-query-drawer.jv-open { display: block; }
+.jv-example {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: var(--jv-fg);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.jv-example:hover { background: var(--jv-hover); }
+.jv-example-code { color: var(--jv-key); white-space: pre; }
+.jv-example-desc { color: var(--jv-muted); }
+.jv-examples-note { display: block; color: var(--jv-muted); padding: 6px 6px 0; font-style: italic; }
+
 .jv-scroller {
   flex: 1 1 auto;
   overflow: auto;

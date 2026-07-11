@@ -1,13 +1,17 @@
-# Trustworthy JSON Viewer
+# larry
 
-A JSON viewer browser extension for Chromium browsers that pretty-prints,
+A trustworthy JSON viewer browser extension for Chromium browsers that pretty-prints,
 syntax-highlights, makes URLs clickable, and collapses/expands — built to be
 *audited*, not just used.
 
-- **Zero runtime dependencies, zero permissions, zero network.** The whole
-  extension is one content script (`src/content.ts`) plus a stylesheet. It uses
-  no `chrome.*` APIs and requests no permissions, so the Web Store review is
-  trivial and there is nothing to trust but the code in front of you.
+- **One vetted dependency, zero permissions, zero network, no eval.** The
+  viewer is one content script (`src/content.ts`) plus a stylesheet. The **jq
+  query** feature adds a single pure-JavaScript dependency,
+  [jqjs](https://github.com/mwh/jqjs) (MIT) — a hand-written jq interpreter with
+  **no `eval`/`Function`** and no network. It uses no `chrome.*` APIs and
+  requests no permissions. jqjs is **not committed here**: it's pinned by commit
+  and hash in `flake.lock` and fetched at build time, so it stays reproducible
+  and auditable (its ~3.4k lines are the only code beyond this repo).
 - **Handles tens of MB.** The tree is *virtualized* — only the rows in the
   viewport exist as DOM nodes. Documents expand fully by default; only when a
   full expansion would exceed ~100k rows does it collapse the deepest levels to
@@ -33,32 +37,55 @@ syntax-highlights, makes URLs clickable, and collapses/expands — built to be
   per-row `⧉`. Selecting part of a single value still copies just that text.
 - **Toolbar Copy / View raw.** **Copy** puts the entire document on the
   clipboard; **View raw** shows the untouched payload.
+- **jq query.** The bar under the toolbar runs a [jq](https://jqlang.github.io/jq/)
+  program (via jqjs) over the document — type a filter, press Enter, and the
+  result renders in the same tree; **Clear** (or Esc) restores the original.
+  **Examples** opens a drawer of common patterns, including deep-search filters
+  like `.. | select(type == "string")` and `[paths]` for locating keys. It's
+  *core* jq — most of the language, but not every builtin.
 
 ## Layout
 
 ```
-src/content.ts     the entire viewer (parse, virtualized tree, highlight, links)
+src/content.ts     the entire viewer (parse, virtualized tree, highlight, links, jq bar)
 src/content.css    styling (light/dark, fixed 20px row height)
-src/manifest.json  MV3 manifest — no permissions
-flake.nix          build derivation + NixOS and nix-darwin force-install modules
+src/manifest.json  MV3 manifest — no permissions; loads jqjs.js then content.js
+flake.nix          build derivation + jqjs input + NixOS/nix-darwin force-install modules
+(jqjs.js)          jq engine — fetched from the pinned flake input and shimmed at build time
 ```
 
 ## Build
 
-With Nix:
+With Nix (handles jqjs for you):
 
 ```sh
 nix build            # → result/extension (loadable) and result/json-viewer.zip (store upload)
 ```
 
-Without Nix:
+To update the pinned jqjs version, bump the lock and rebuild:
+
+```sh
+nix flake update jqjs   # rewrites flake.lock to jqjs' latest commit + hash
+nix build               # re-test the query bar afterwards (see the shim note below)
+```
+
+Without Nix you must also fetch jqjs yourself and expose it as a global (a
+content script can't be an ES module), matching what `flake.nix` does:
 
 ```sh
 npm i -D typescript
 npx tsc -p tsconfig.json
 cp src/content.css src/manifest.json dist/
+# pin <rev> to the same commit as flake.lock:
+curl -fsSL "https://raw.githubusercontent.com/mwh/jqjs/<rev>/jq.js" \
+  | grep -v '^export ' > dist/jqjs.js
+printf '\nglobalThis.jqjs = { compile, prettyPrint, compileNode, formats };\n' >> dist/jqjs.js
 # dist/ is now loadable and zippable
 ```
+
+The build strips jqjs' `export` lines and appends a global assignment. That
+shim assumes the exported names stay `compile, prettyPrint, compileNode,
+formats` — after a version bump, smoke-test the query bar in case they changed.
 
 ## Try it locally (dev)
 
@@ -68,6 +95,16 @@ cp src/content.css src/manifest.json dist/
 
 For local `file://` JSON, also toggle **Allow access to file URLs** on the
 extension's card.
+
+### Run only when you click it
+
+larry ships a toolbar `action` (an icon) but no popup and no `chrome.*` code. If
+you'd rather it not touch every page, open its menu → **This can read and change
+site data → When you click the extension**. Chrome then withholds the content
+script until you click larry's icon on a page, and injects it (JS + CSS) at that
+point — no scripting APIs or extra permissions involved. Trade-off: click-to-run
+happens *after* the page has painted, so you'll briefly see the raw JSON before
+it's replaced (the pre-paint no-flash swap only happens in auto-run mode).
 
 ## Publish (strategy A: force-install by ID on every machine)
 

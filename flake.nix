@@ -1,17 +1,23 @@
 {
-  description = "Trustworthy JSON Viewer — a dependency-free JSON viewer extension, with declarative force-install for NixOS and nix-darwin.";
+  description = "larry — a trustworthy JSON viewer extension (jq querying via one pinned, eval-free dependency), with declarative force-install for NixOS and nix-darwin.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    # Pure-JS, eval-free jq implementation (MIT). Source only — pinned by
+    # flake.lock (commit + narHash); bump with `nix flake update jqjs`.
+    jqjs = {
+      url = "github:mwh/jqjs";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, jqjs }:
     let
       # Options shared by the NixOS and darwin modules. `extensionId` is the
       # 32-char ID the Chrome Web Store assigns once you publish (strategy A).
       commonOptions = lib: {
-        enable = lib.mkEnableOption "force-install the Trustworthy JSON Viewer";
+        enable = lib.mkEnableOption "force-install larry, the trustworthy JSON viewer";
         extensionId = lib.mkOption {
           type = lib.types.strMatching "[a-p]{32}";
           example = "abcdefghijklmnopabcdefghijklmnop";
@@ -77,12 +83,16 @@
             runHook preBuild
             tsc -p tsconfig.json
             cp src/content.css src/manifest.json dist/
+            # jqjs ships as an ES module, but a content script can't be one, so
+            # strip its `export` lines and expose the API as a global instead.
+            grep -v '^export ' ${jqjs}/jq.js > dist/jqjs.js
+            printf '\nglobalThis.jqjs = { compile, prettyPrint, compileNode, formats };\n' >> dist/jqjs.js
             runHook postBuild
           '';
           installPhase = ''
             runHook preInstall
             mkdir -p $out/extension
-            cp dist/content.js dist/content.css dist/manifest.json $out/extension/
+            cp dist/jqjs.js dist/content.js dist/content.css dist/manifest.json $out/extension/
             ( cd $out/extension && zip -qr "$out/json-viewer.zip" . )
             runHook postInstall
           '';

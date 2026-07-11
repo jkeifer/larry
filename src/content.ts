@@ -1,5 +1,5 @@
 /*
- * Trustworthy JSON Viewer — content script.
+ * larry — a trustworthy JSON viewer. Content script.
  *
  * Design goals (in priority order):
  *   1. Auditable: one file, zero runtime dependencies, no chrome.* APIs, no
@@ -19,6 +19,12 @@
  * state shows. (If you ever need hundreds of MB, the upgrade is a Worker that
  * parses into a transferable ArrayBuffer index — noted in the README.)
  */
+
+// jqjs, loaded as the first content script (see manifest), exposes its API on
+// the global. Pure JS, no eval — `compile(prog)` returns a generator function.
+declare const jqjs: {
+  compile(program: string): (input: unknown) => Iterable<unknown>;
+};
 
 (() => {
   "use strict";
@@ -58,6 +64,7 @@
   const INDENT = 16;       // px per depth level
   const OVERSCAN = 12;     // rows rendered above/below the viewport
   const ROW_BUDGET = 100000; // fully expand on load unless it would exceed this many rows
+  const QUERY_CAP = 200000;  // stop collecting jq outputs past this (guards runaway streams)
   const STR_MAX = 200;     // chars shown before a long string is truncated
   const URL_RE = /^https?:\/\/[^\s]+$/i;
 
@@ -128,12 +135,18 @@
     private canvas!: HTMLDivElement;     // holds the visible slice
     private rawPre: HTMLPreElement | null = null;
     private showingRaw = false;
+    private viewingResult = false;   // true while a jq result (not the original) is shown
     private renderScheduled = false;
     private collapseBtn!: HTMLButtonElement;
     private expandBtn!: HTMLButtonElement;
+    private readonly original: Json;   // the parsed document, before any jq query
+    private queryInput!: HTMLInputElement;
+    private queryStatus!: HTMLElement;
+    private clearBtn!: HTMLButtonElement;
 
     constructor(data: Json, raw: string) {
       this.data = data;
+      this.original = data;
       this.raw = raw;
     }
 
@@ -141,7 +154,7 @@
       document.title = document.title || "JSON";
       const app = document.createElement("div");
       app.className = "jv-app";
-      app.append(this.buildToolbar(), this.buildTree());
+      app.append(this.buildToolbar(), this.buildQueryBar(), this.buildTree());
 
       // Replace the page body wholesale with our UI.
       const body = document.body || document.documentElement.appendChild(document.createElement("body"));
@@ -185,7 +198,7 @@
       const rawBtn = button("View raw", () => this.toggleRaw(rawBtn));
       const copyBtn = button("Copy", async () => {
         try {
-          await navigator.clipboard.writeText(this.raw);
+          await navigator.clipboard.writeText(this.currentText());
           flash(copyBtn, "Copied");
         } catch {
           flash(copyBtn, "Copy failed");
@@ -238,6 +251,141 @@
       this.scroller.addEventListener("copy", (e) => this.onCopy(e as ClipboardEvent));
 
       return this.scroller;
+    }
+
+    // ---- Query bar (jq via jqjs) ------------------------------------------
+    private buildQueryBar(): HTMLElement {
+      const wrap = document.createElement("div");
+      wrap.className = "jv-query";
+
+      const input = this.queryInput = document.createElement("input");
+      input.type = "text";
+      input.className = "jv-query-input";
+      input.placeholder = "jq filter — e.g.  .links[] | .href      (Enter to run, Esc to clear)";
+      input.spellcheck = false;
+      input.autocapitalize = "off";
+      input.setAttribute("autocorrect", "off");
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); this.runQuery(input.value); }
+        else if (e.key === "Escape") { e.preventDefault(); input.value = ""; this.resetQuery(); }
+      });
+
+      const runBtn = button("Run", () => this.runQuery(input.value));
+      const clearBtn = this.clearBtn = button("Clear", () => { input.value = ""; this.resetQuery(); });
+      clearBtn.style.display = "none";
+
+      const drawer = this.buildExamplesDrawer();
+      const helpBtn = button("Examples", () => {
+        const open = drawer.classList.toggle("jv-open");
+        helpBtn.textContent = open ? "Hide examples" : "Examples";
+      });
+
+      const status = this.queryStatus = document.createElement("span");
+      status.className = "jv-query-status";
+      status.style.display = "none";
+
+      const bar = document.createElement("div");
+      bar.className = "jv-query-bar";
+      bar.append(text("jq", "jv-query-label"), input, runBtn, clearBtn, helpBtn, status);
+
+      wrap.append(bar, drawer);
+      return wrap;
+    }
+
+    private buildExamplesDrawer(): HTMLElement {
+      // Every one of these is verified to run on the pinned jqjs.
+      const examples: [string, string][] = [
+        [".", "the whole document (reset)"],
+        ["keys", "top-level keys"],
+        [".links", "value at a key"],
+        [".links[] | .href", "one field from every array item"],
+        ['.links[] | select(.rel == "child")', "array items matching a field"],
+        [".links | length", "count items"],
+        ['.. | select(type == "string")', "every string anywhere (deep search)"],
+        ["[paths]", "every path in the document (locate keys)"],
+        ["to_entries | map(.key)", "an object's keys, as data"],
+      ];
+      const drawer = document.createElement("div");
+      drawer.className = "jv-query-drawer";
+      for (const [prog, desc] of examples) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "jv-example";
+        row.append(text(prog, "jv-example-code"), text(desc, "jv-example-desc"));
+        row.addEventListener("click", () => {
+          this.queryInput.value = prog;
+          this.queryInput.focus();
+          this.runQuery(prog);
+        });
+        drawer.appendChild(row);
+      }
+      drawer.appendChild(text("core jq via jqjs — not every builtin is implemented", "jv-examples-note"));
+      return drawer;
+    }
+
+    private runQuery(rawProgram: string): void {
+      const program = rawProgram.trim();
+      if (!program || program === ".") { this.resetQuery(); return; }
+
+      let compiled: (input: unknown) => Iterable<unknown>;
+      try {
+        compiled = jqjs.compile(program);
+      } catch (err) {
+        this.setQueryStatus(`error: ${(err as Error).message}`, true);
+        return;
+      }
+
+      // The run is synchronous; paint a "running…" state first so a heavy query
+      // over a large document doesn't look like a freeze.
+      this.setQueryStatus("running…", false);
+      nextPaint().then(() => {
+        try {
+          const outputs: Json[] = [];
+          let truncated = false;
+          for (const out of compiled(this.original)) {
+            outputs.push(out as Json);
+            if (outputs.length >= QUERY_CAP) { truncated = true; break; }
+          }
+          this.showData(outputs.length === 1 ? outputs[0] : outputs, true);
+          const n = outputs.length;
+          this.setQueryStatus(`${n}${truncated ? "+" : ""} result${n === 1 ? "" : "s"}`, false);
+        } catch (err) {
+          this.setQueryStatus(`error: ${(err as Error).message}`, true);
+        }
+      });
+    }
+
+    private resetQuery(): void {
+      this.setQueryStatus("", false);
+      this.showData(this.original, false);
+    }
+
+    // Swap the viewed value (original document or a query result) and re-fit it
+    // to the same tree — fresh expansion state, buttons, and scroll position.
+    private showData(data: Json, isResult: boolean): void {
+      this.data = data;
+      this.viewingResult = isResult;
+      this.expanded.clear();
+      this.autoExpand();
+      this.rebuildRows();
+      this.updateButtons();
+      this.clearBtn.style.display = isResult ? "" : "none";
+      if (this.rawPre) this.rawPre.textContent = this.currentText();
+      this.scroller.scrollTop = 0;
+      this.scheduleRender();
+    }
+
+    // The text behind "Copy" and "View raw": the exact original payload while
+    // the whole document is shown, or the pretty-printed value once a jq query
+    // has replaced the view — i.e. always what's currently on screen.
+    private currentText(): string {
+      return this.viewingResult ? JSON.stringify(this.data, null, 2) : this.raw;
+    }
+
+    private setQueryStatus(msg: string, isError: boolean): void {
+      this.queryStatus.textContent = msg;
+      this.queryStatus.classList.toggle("jv-query-err", isError && msg !== "");
+      this.queryStatus.style.display = msg ? "" : "none";
     }
 
     // ---- Row model ---------------------------------------------------------
@@ -405,9 +553,9 @@
         if (!this.rawPre) {
           this.rawPre = document.createElement("pre");
           this.rawPre.className = "jv-raw";
-          this.rawPre.textContent = this.raw;
           this.scroller.parentElement!.appendChild(this.rawPre);
         }
+        this.rawPre.textContent = this.currentText();
         this.rawPre.style.display = "";
       } else {
         this.scroller.style.display = "";

@@ -18,6 +18,22 @@
         "type": "github"
       }
     },
+    "jqjs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771035425,
+        "narHash": "sha256-HDBSY+WD9bttFOLpR1vx0qpyPdT7eA1LI1o5Fk3JJFE=",
+        "owner": "mwh",
+        "repo": "jqjs",
+        "rev": "2f0d44aa144fbe293afc6a579b86a3de47c4b785",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mwh",
+        "repo": "jqjs",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1783522502,
@@ -37,6 +53,7 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
+        "jqjs": "jqjs",
         "nixpkgs": "nixpkgs"
       }
     },

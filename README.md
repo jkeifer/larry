@@ -180,6 +180,10 @@ You chose to publish so others can use it too. That means a **public** listing
 (discoverable in the store) rather than unlisted (link-only). Either works for
 your own force-install; public just adds discoverability.
 
+Before uploading, draft your **[Privacy Policy](docs/PRIVACY.md)** and
+**[Chrome Web Store listing](docs/store-listing.md)** — both are required by the
+store and ready to copy-paste before submission.
+
 1. Create a Chrome Web Store developer account. **Put a hardware security key on
    this account.** A stolen or phished developer account is the single most
    common way "trusted" extensions get hijacked — it is the exact vector you're

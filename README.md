@@ -217,4 +217,4 @@ open and collapses the deepest ones, which you can still expand by hand.
 
 ## License
 
-MIT (or your choice) — it's yours to relicense when you open-source it.
+MIT (or your choice) — it's yours to relicense when you open-source it. Bundles jqjs (MIT, © Michael Homer) at build time; its license header is preserved in the shipped `jqjs.js`.

@@ -53,6 +53,19 @@ export function spliceInto<T>(arr: T[], index: number, items: T[]): void {
   }
 }
 
+// The lowercased haystack a find query is matched against for one row: its
+// key/label plus, for scalar rows, the rendered value. Container rows (object
+// /array) contribute only their label — never their nested contents — and a
+// row with no label and a non-scalar value (e.g. a synthetic closing bracket)
+// yields an empty string so it can never match. Case-insensitive by design.
+export function searchableText(label: string | null, kind: Kind, value: Json): string {
+  let s = label ?? "";
+  if (kind === "string") s += " " + (value as string);
+  else if (kind === "number" || kind === "boolean") s += " " + String(value);
+  else if (kind === "null") s += " null";
+  return s.trim().length ? s.toLowerCase() : "";
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;

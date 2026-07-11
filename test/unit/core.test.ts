@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { kindOf, childPath, spliceInto, formatBytes, tryParseNdjson } from "../../src/core";
+import { kindOf, childPath, spliceInto, formatBytes, tryParseNdjson, searchableText } from "../../src/core";
 
 describe("kindOf", () => {
   it("classifies", () => {
@@ -68,5 +68,53 @@ describe("tryParseNdjson", () => {
   it("ignores blank lines", () => {
     const raw = ['{"id": 1}', "", "   ", '{"id": 2}', ""].join("\n");
     expect(tryParseNdjson(raw)).toEqual([{ id: 1 }, { id: 2 }]);
+  });
+});
+
+describe("searchableText", () => {
+  it("includes the key/label", () => {
+    const hay = searchableText("Href", "object", {});
+    expect(hay).toContain("href");
+  });
+
+  it("includes a string value", () => {
+    const hay = searchableText("url", "string", "HTTPS://Example.COM");
+    expect(hay).toContain("url");
+    expect(hay).toContain("https://example.com");
+  });
+
+  it("includes number, boolean, and null values", () => {
+    expect(searchableText("count", "number", 42)).toContain("42");
+    expect(searchableText("ok", "boolean", true)).toContain("true");
+    expect(searchableText("empty", "null", null)).toContain("null");
+  });
+
+  it("is case-insensitive (lowercased haystack)", () => {
+    const hay = searchableText("Title", "string", "Hello World");
+    expect(hay).toBe(hay.toLowerCase());
+    expect(hay).toContain("hello world");
+    expect(hay).toContain("title");
+  });
+
+  it("does not include container child contents in the haystack", () => {
+    // A container row matches on its label only, never on nested scalar values.
+    const hay = searchableText("items", "array", ["needle"]);
+    expect(hay).toContain("items");
+    expect(hay).not.toContain("needle");
+  });
+
+  it("yields an empty haystack for a closing-style row (null label, null kind-ish)", () => {
+    // Closing rows carry no label and their value is null; the wrapper skips
+    // them, but the pure function must also produce nothing meaningful to match
+    // arbitrary queries against.
+    expect(searchableText(null, "array", null)).toBe("");
+    expect(searchableText(null, "object", null)).toBe("");
+  });
+
+  it("supports the matching rule via case-insensitive substring", () => {
+    const hay = searchableText("Description", "string", "A Long TEXT");
+    expect(hay.includes("description")).toBe(true);
+    expect(hay.includes("long text")).toBe(true);
+    expect(hay.includes("missing")).toBe(false);
   });
 });

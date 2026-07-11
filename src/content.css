@@ -186,6 +186,38 @@ html.jv-active {
 .jv-str.jv-expanded .jv-str-shown { display: none; }
 .jv-str-more { color: var(--jv-link); cursor: pointer; padding-left: 4px; }
 
+/* In-tree find bar: overlays the scroller's top-right corner. */
+.jv-find {
+  display: none;
+  position: absolute;
+  top: 6px;
+  right: 16px;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 6px;
+  background: var(--jv-bar);
+  border: 1px solid var(--jv-line);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+  z-index: 5;
+}
+.jv-find.jv-open { display: flex; }
+.jv-find-input {
+  font: inherit;
+  color: var(--jv-fg);
+  background: var(--jv-bg);
+  border: 1px solid var(--jv-line);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.jv-find-input:focus-visible { outline: 2px solid var(--jv-link); outline-offset: 1px; }
+.jv-find-count { color: var(--jv-muted); min-width: 40px; text-align: center; }
+.jv-find-hit { background: color-mix(in srgb, var(--jv-num) 22%, transparent); }
+.jv-find-current {
+  background: color-mix(in srgb, var(--jv-num) 45%, transparent);
+  outline: 1px solid var(--jv-num);
+}
+
 .jv-raw {
   margin: 0;
   padding: 12px;

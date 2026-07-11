@@ -36,6 +36,7 @@ import {
   childPath,
   spliceInto,
   formatBytes,
+  searchableText,
   URL_RE,
   tryParseNdjson,
 } from "./core";
@@ -108,6 +109,14 @@ import {
     private queryRunId = 0;
     private readonly note: string;
 
+    // ---- Find (in-tree) ----------------------------------------------------
+    private findQuery = "";
+    private findMatches: number[] = [];
+    private findPos = -1;
+    private findBar!: HTMLElement;
+    private findInput!: HTMLInputElement;
+    private findCount!: HTMLElement;
+
     constructor(data: Json, raw: string, note = "") {
       this.data = data;
       this.original = data;
@@ -119,12 +128,26 @@ import {
       document.title = document.title || "JSON";
       const app = document.createElement("div");
       app.className = "jv-app";
-      app.append(this.buildToolbar(), this.buildQueryBar(), this.buildTree());
+      const tree = this.buildTree();
+      // The find bar anchors to the scroller (position: relative), overlaying
+      // the tree's top-right corner.
+      this.scroller.appendChild(this.buildFindBar());
+      app.append(this.buildToolbar(), this.buildQueryBar(), tree);
 
       // Replace the page body wholesale with our UI.
       const body = document.body || document.documentElement.appendChild(document.createElement("body"));
       body.textContent = "";
       body.appendChild(app);
+
+      // Commandeer Cmd/Ctrl+F: native find can't see virtualized rows, so we
+      // suppress it and open larry's own in-tree find instead.
+      window.addEventListener("keydown", (e) => {
+        const mod = e.ctrlKey || e.metaKey;
+        if (mod && (e.key === "f" || e.key === "F")) {
+          e.preventDefault();
+          this.openFind();
+        }
+      });
 
       this.autoExpand();
       this.rebuildRows();
@@ -367,6 +390,92 @@ import {
       this.queryStatus.style.display = msg ? "" : "none";
     }
 
+    // ---- Find (in-tree) ----------------------------------------------------
+    private buildFindBar(): HTMLElement {
+      const bar = this.findBar = document.createElement("div");
+      bar.className = "jv-find";
+      const input = this.findInput = document.createElement("input");
+      input.type = "text";
+      input.className = "jv-find-input";
+      input.placeholder = "find in view";
+      input.spellcheck = false;
+      input.setAttribute("autocorrect", "off");
+      input.autocapitalize = "off";
+      input.addEventListener("input", () => { this.findQuery = input.value; this.runFind(); });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); this.stepFind(e.shiftKey ? -1 : 1); }
+        else if (e.key === "Escape") { e.preventDefault(); this.closeFind(); }
+      });
+      const count = this.findCount = document.createElement("span");
+      count.className = "jv-find-count";
+      const prev = button("↑", () => this.stepFind(-1));
+      prev.title = "Previous match (Shift+Enter)";
+      const next = button("↓", () => this.stepFind(1));
+      next.title = "Next match (Enter)";
+      const close = button("✕", () => this.closeFind());
+      close.title = "Close (Esc)";
+      bar.append(input, count, prev, next, close);
+      return bar;
+    }
+
+    // The lowercased haystack matched against the query. Closing rows never
+    // match; the pure rule lives in core.searchableText for unit testing.
+    private rowSearchText(row: Row): string {
+      if (row.closing) return "";
+      return searchableText(row.label, row.kind, row.value);
+    }
+
+    private runFind(): void {
+      const q = this.findQuery.trim().toLowerCase();
+      this.findMatches = [];
+      if (q) {
+        for (let i = 0; i < this.rows.length; i++) {
+          if (this.rowSearchText(this.rows[i]).includes(q)) this.findMatches.push(i);
+        }
+      }
+      this.findPos = this.findMatches.length ? 0 : -1;
+      this.updateFindCount();
+      if (this.findPos >= 0) this.scrollToMatch();
+      this.scheduleRender(); // repaint highlight classes
+    }
+
+    private stepFind(dir: number): void {
+      if (!this.findMatches.length) return;
+      this.findPos = (this.findPos + dir + this.findMatches.length) % this.findMatches.length;
+      this.updateFindCount();
+      this.scrollToMatch();
+      this.scheduleRender();
+    }
+
+    private updateFindCount(): void {
+      const n = this.findMatches.length;
+      this.findCount.textContent = n ? `${this.findPos + 1}/${n}` : (this.findQuery.trim() ? "0/0" : "");
+    }
+
+    private scrollToMatch(): void {
+      const idx = this.findMatches[this.findPos];
+      if (idx == null) return;
+      const top = idx * ROW_H;
+      const view = this.scroller.clientHeight;
+      this.scroller.scrollTop = Math.max(0, top - view / 2); // center-ish
+    }
+
+    private openFind(): void {
+      this.findBar.classList.add("jv-open");
+      this.findInput.focus();
+      this.findInput.select();
+    }
+
+    private closeFind(): void {
+      this.findBar.classList.remove("jv-open");
+      this.findQuery = "";
+      this.findInput.value = "";
+      this.findMatches = [];
+      this.findPos = -1;
+      this.updateFindCount();
+      this.scheduleRender();
+    }
+
     // ---- Row model ---------------------------------------------------------
     private makeRow(path: string, label: string | null, value: Json, depth: number): Row {
       const kind = kindOf(value);
@@ -411,6 +520,9 @@ import {
       this.materialize(this.makeRow("$", null, this.data, 0), out);
       this.rows = out;
       if (this.sizer) this.sizer.style.height = `${this.rows.length * ROW_H}px`;
+      // Row indices changed; recompute matches against the new set. runFind
+      // calls scheduleRender (not rebuildRows), so there is no recursion.
+      if (this.findQuery.trim()) this.runFind();
     }
 
     private toggle(index: number): void {
@@ -442,6 +554,7 @@ import {
       }
       this.sizer.style.height = `${this.rows.length * ROW_H}px`;
       this.updateButtons();
+      if (this.findQuery.trim()) this.runFind();
       this.scheduleRender();
     }
 
@@ -648,6 +761,18 @@ import {
       el.className = "jv-row";
       el.dataset.index = String(index);
       el.style.paddingLeft = `${row.depth * INDENT}px`;
+
+      // Find highlight: a matching row gets a "hit" tint; the current match a
+      // stronger one. Membership is recomputed from the query so it survives
+      // any re-materialization (indices in findMatches always refer to the
+      // freshly rebuilt row set — runFind re-runs on every row-set change).
+      if (this.findMatches.length) {
+        const q = this.findQuery.trim().toLowerCase();
+        if (q && this.rowSearchText(row).includes(q)) {
+          el.classList.add("jv-find-hit");
+          if (this.findMatches[this.findPos] === index) el.classList.add("jv-find-current");
+        }
+      }
 
       // Closing bracket row: an empty caret keeps it aligned under its key.
       if (row.closing) {

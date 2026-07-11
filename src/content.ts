@@ -108,6 +108,7 @@ import {
   const OVERSCAN = 12;     // rows rendered above/below the viewport
   const ROW_BUDGET = 100000; // fully expand on load unless it would exceed this many rows
   const QUERY_CAP = 200000;  // stop collecting jq outputs past this (guards runaway streams)
+  const EXPAND_CAP = 200000; // refuse a single expand/step that would materialize past this many rows
   const STR_MAX = 200;     // chars shown before a long string is truncated
 
   // ---- Helpers -------------------------------------------------------------
@@ -655,7 +656,7 @@ import {
         this.rows.splice(index + 1, end - (index + 1));
       } else {
         // Expand: refuse if this one node would explode the visible list.
-        if (this.rows.length + row.childCount > 200000) {
+        if (this.rows.length + row.childCount > EXPAND_CAP) {
           alert(`Expanding this would add ${row.childCount.toLocaleString()} rows and may stall the tab. Use the jq bar to filter it instead.`);
           return;
         }
@@ -723,7 +724,7 @@ import {
       const frontier = this.rows.filter((r) => r.expandable && !this.expanded.has(r.path));
       if (frontier.length === 0) return; // already fully expanded
       const added = frontier.reduce((sum, r) => sum + r.childCount, 0);
-      if (this.rows.length + added > 200000) {
+      if (this.rows.length + added > EXPAND_CAP) {
         alert(`That would show ${(this.rows.length + added).toLocaleString()} rows. Expand nodes individually instead.`);
         return;
       }

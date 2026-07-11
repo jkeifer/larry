@@ -162,6 +162,22 @@ html.jv-active {
 .jv-copy:hover { color: var(--jv-fg); }
 .jv-copied { color: var(--jv-str); }
 
+.jv-copypath {
+  position: absolute;
+  top: 0;
+  right: 34px;
+  display: none;
+  padding: 0 5px;
+  color: var(--jv-muted);
+  cursor: pointer;
+  user-select: none;
+  background: var(--jv-hover);
+  border: 1px solid var(--jv-line);
+  border-radius: 4px;
+}
+.jv-row:hover .jv-copypath { display: inline-block; }
+.jv-copypath:hover { color: var(--jv-fg); }
+
 .jv-caret {
   display: inline-block;
   width: 14px;

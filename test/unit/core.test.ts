@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { kindOf, childPath, spliceInto, formatBytes, tryParseNdjson, searchableText } from "../../src/core";
+import {
+  kindOf,
+  childPath,
+  spliceInto,
+  formatBytes,
+  tryParseNdjson,
+  searchableText,
+  pathToJq,
+} from "../../src/core";
 
 describe("kindOf", () => {
   it("classifies", () => {
@@ -116,5 +124,34 @@ describe("searchableText", () => {
     expect(hay.includes("description")).toBe(true);
     expect(hay.includes("long text")).toBe(true);
     expect(hay.includes("missing")).toBe(false);
+  });
+});
+
+describe("pathToJq", () => {
+  it("converts the root path to a bare dot", () => {
+    expect(pathToJq("$")).toBe(".");
+  });
+
+  it("converts a nested bracket path to dot/index form", () => {
+    expect(pathToJq('$["links"][3]["href"]')).toBe(".links[3].href");
+  });
+
+  it("bracket-quotes a key that is not a valid bare identifier (e.g. dashed)", () => {
+    expect(pathToJq('$["content-type"]')).toBe('.["content-type"]');
+  });
+
+  it("keeps a digits-only string key bracket-quoted, not turned into an array index", () => {
+    // A JSON key of "123" is stored as $["123"] (quoted). It must render as
+    // .["123"], not .[123] — the two are different in jq: bracket-quoted is
+    // an object key lookup, bare-bracket is an array index.
+    expect(pathToJq('$["123"]')).toBe('.["123"]');
+  });
+
+  it("renders true array indices (unquoted, from array traversal) as [n]", () => {
+    expect(pathToJq('$["a"][0]["b"]')).toBe(".a[0].b");
+  });
+
+  it("handles a simple single-key path", () => {
+    expect(pathToJq('$["stac_version"]')).toBe(".stac_version");
   });
 });

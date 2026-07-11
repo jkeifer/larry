@@ -39,6 +39,7 @@ import {
   searchableText,
   URL_RE,
   tryParseNdjson,
+  pathToJq,
 } from "./core";
 
 (() => {
@@ -221,6 +222,12 @@ import {
         const copyEl = target.closest<HTMLElement>(".jv-copy");
         if (copyEl) {
           this.copyNode(index, copyEl);
+          return;
+        }
+
+        const copyPathEl = target.closest<HTMLElement>(".jv-copypath");
+        if (copyPathEl) {
+          this.copyPath(index, copyPathEl);
           return;
         }
 
@@ -674,6 +681,19 @@ import {
       }
     }
 
+    // Per-row: copy the jq expression that selects this node (e.g. .links[3].href).
+    private async copyPath(index: number, el: HTMLElement): Promise<void> {
+      const row = this.rows[index];
+      if (!row) return;
+      try {
+        await navigator.clipboard.writeText(pathToJq(row.path));
+        el.classList.add("jv-copied");
+        setTimeout(() => el.classList.remove("jv-copied"), 900);
+      } catch {
+        /* clipboard blocked by the page context; nothing safe to do */
+      }
+    }
+
     private onCopy(e: ClipboardEvent): void {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
@@ -803,6 +823,13 @@ import {
 
       // value
       el.appendChild(this.renderValue(row));
+
+      // Per-row copy-path: copies the jq expression that selects this node.
+      const copyPath = document.createElement("span");
+      copyPath.className = "jv-copypath";
+      copyPath.title = "Copy jq path to this value";
+      copyPath.textContent = "⌖";
+      el.appendChild(copyPath);
 
       // Per-row copy: grabs this node's whole subtree as pretty JSON,
       // regardless of scroll position or what is currently collapsed.

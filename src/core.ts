@@ -72,6 +72,29 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Converts a stored row path (bracket form, e.g. $["links"][3]["href"]) into
+// the jq expression that selects the same value (e.g. .links[3].href).
+// Numeric tokens are true array indices (unquoted in the stored path) and
+// render as [n]; string tokens are object keys and render as bare .key when
+// the key is a valid identifier, else as bracket-quoted .["key"] — including
+// digit-only string keys (a JSON key of "123" is a quoted object lookup, not
+// an array index, so it must stay bracket-quoted).
+export function pathToJq(path: string): string {
+  let out = "";
+  const re = /\[("(?:[^"\\]|\\.)*"|\d+)\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(path)) !== null) {
+    const token = m[1];
+    if (/^\d+$/.test(token)) {
+      out += `[${token}]`;
+    } else {
+      const key = JSON.parse(token) as string; // the raw key
+      out += /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? `.${key}` : `.[${token}]`;
+    }
+  }
+  return out === "" ? "." : out;
+}
+
 // Returns the parsed records if `raw` is newline-delimited JSON (>=2 records,
 // every non-blank line valid), else null.
 export function tryParseNdjson(raw: string): Json[] | null {

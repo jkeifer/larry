@@ -82,6 +82,7 @@ import {
     new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     );
+  const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
   // ---- The viewer ----------------------------------------------------------
   class JsonView {
@@ -103,6 +104,7 @@ import {
     private queryInput!: HTMLInputElement;
     private queryStatus!: HTMLElement;
     private clearBtn!: HTMLButtonElement;
+    private queryRunId = 0;
 
     constructor(data: Json, raw: string) {
       this.data = data;
@@ -295,27 +297,41 @@ import {
         return;
       }
 
-      // The run is synchronous; paint a "running…" state first so a heavy query
-      // over a large document doesn't look like a freeze.
+      const runId = ++this.queryRunId;
       this.setQueryStatus("running…", false);
-      nextPaint().then(() => {
+      // Drain the generator in ~16ms slices so the tab stays responsive and a
+      // newer query (or Clear) can cancel this one.
+      void nextPaint().then(async () => {
+        const outputs: Json[] = [];
+        let truncated = false;
         try {
-          const outputs: Json[] = [];
-          let truncated = false;
-          for (const out of compiled(this.original)) {
-            outputs.push(out as Json);
+          const it = compiled(this.original)[Symbol.iterator]();
+          let slice = performance.now();
+          for (;;) {
+            if (runId !== this.queryRunId) return; // superseded / cancelled
+            const next = it.next();
+            if (next.done) break;
+            outputs.push(next.value as Json);
             if (outputs.length >= QUERY_CAP) { truncated = true; break; }
+            if (performance.now() - slice > 16) {
+              this.setQueryStatus(`running… ${outputs.length.toLocaleString()}`, false);
+              await macrotask();
+              slice = performance.now();
+            }
           }
-          this.showData(outputs.length === 1 ? outputs[0] : outputs, true);
-          const n = outputs.length;
-          this.setQueryStatus(`${n}${truncated ? "+" : ""} result${n === 1 ? "" : "s"}`, false);
         } catch (err) {
-          this.setQueryStatus(`error: ${(err as Error).message}`, true);
+          if (runId === this.queryRunId) this.setQueryStatus(`error: ${(err as Error).message}`, true);
+          return;
         }
+        if (runId !== this.queryRunId) return;
+        this.showData(outputs.length === 1 ? outputs[0] : outputs, true);
+        const n = outputs.length;
+        this.setQueryStatus(`${n}${truncated ? "+" : ""} result${n === 1 ? "" : "s"}`, false);
       });
     }
 
     private resetQuery(): void {
+      this.queryRunId++;
       this.setQueryStatus("", false);
       this.showData(this.original, false);
     }

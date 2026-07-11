@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { kindOf, childPath, spliceInto, formatBytes } from "../../src/core";
+import { kindOf, childPath, spliceInto, formatBytes, tryParseNdjson } from "../../src/core";
 
 describe("kindOf", () => {
   it("classifies", () => {
@@ -39,5 +39,34 @@ describe("formatBytes", () => {
     expect(formatBytes(500)).toBe("500 B");
     expect(formatBytes(2048)).toBe("2.0 KB");
     expect(formatBytes(2 * 1024 * 1024)).toBe("2.0 MB");
+  });
+});
+
+describe("tryParseNdjson", () => {
+  it("parses valid NDJSON with >=2 lines into an array of records", () => {
+    const raw = [
+      '{"id": 1, "name": "alpha", "tags": ["x", "y"]}',
+      '{"id": 2, "name": "bravo", "tags": []}',
+      '{"id": 3, "name": "charlie", "tags": ["z"]}',
+    ].join("\n");
+    expect(tryParseNdjson(raw)).toEqual([
+      { id: 1, name: "alpha", tags: ["x", "y"] },
+      { id: 2, name: "bravo", tags: [] },
+      { id: 3, name: "charlie", tags: ["z"] },
+    ]);
+  });
+
+  it("returns null for a single line", () => {
+    expect(tryParseNdjson('{"id": 1}')).toBeNull();
+  });
+
+  it("returns null when any non-blank line is invalid", () => {
+    const raw = ['{"id": 1}', "not json", '{"id": 3}'].join("\n");
+    expect(tryParseNdjson(raw)).toBeNull();
+  });
+
+  it("ignores blank lines", () => {
+    const raw = ['{"id": 1}', "", "   ", '{"id": 2}', ""].join("\n");
+    expect(tryParseNdjson(raw)).toEqual([{ id: 1 }, { id: 2 }]);
   });
 });

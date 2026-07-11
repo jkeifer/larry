@@ -10,6 +10,20 @@ createServer(async (req, res) => {
     res.end(JSON.stringify({ big: Array.from({ length: 250000 }, (_, i) => i) }));
     return;
   }
+  // NDJSON served as application/json — the realistic trigger for larry's
+  // NDJSON fallback, since the activation gate only fires for that
+  // content-type (whereas /sample.ndjson above is served as text/plain and
+  // won't activate larry until the forced-activation fallback exists).
+  if (req.url === "/sample-ndjson-as-json") {
+    res.setHeader("content-type", "application/json");
+    res.end(await readFile(join(root, "sample.ndjson")));
+    return;
+  }
+  if (req.url === "/malformed-as-json") {
+    res.setHeader("content-type", "application/json");
+    res.end('{"a": 1, "b": ');
+    return;
+  }
   try {
     const body = await readFile(join(root, decodeURIComponent(req.url.slice(1))));
     res.setHeader("content-type", types[extname(req.url)] ?? "text/plain");

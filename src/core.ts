@@ -58,3 +58,19 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
+
+// Returns the parsed records if `raw` is newline-delimited JSON (>=2 records,
+// every non-blank line valid), else null.
+export function tryParseNdjson(raw: string): Json[] | null {
+  const lines = raw.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length < 2) return null;
+  const out: Json[] = [];
+  for (const line of lines) {
+    try {
+      out.push(JSON.parse(line) as Json);
+    } catch {
+      return null;
+    }
+  }
+  return out;
+}

@@ -43,6 +43,13 @@ syntax-highlights, makes URLs clickable, and collapses/expands — built to be
   **Examples** opens a drawer of common patterns, including deep-search filters
   like `.. | select(type == "string")` and `[paths]` for locating keys. It's
   *core* jq — most of the language, but not every builtin.
+- **NDJSON / JSON Lines.** If the response isn't valid JSON as a whole but
+  every non-blank line parses on its own (2 or more lines), larry treats it as
+  newline-delimited JSON and views it as an **array** of those records — so
+  the jq bar reaches individual records via `.[]`, just like jq's own
+  per-record streaming. The toolbar info line shows `NDJSON` when this
+  happened. A response that fails both whole-document and NDJSON parsing still
+  shows the original parse error.
 
 ## Layout
 

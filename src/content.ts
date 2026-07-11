@@ -37,6 +37,7 @@ import {
   spliceInto,
   formatBytes,
   URL_RE,
+  tryParseNdjson,
 } from "./core";
 
 (() => {
@@ -105,11 +106,13 @@ import {
     private queryStatus!: HTMLElement;
     private clearBtn!: HTMLButtonElement;
     private queryRunId = 0;
+    private readonly note: string;
 
-    constructor(data: Json, raw: string) {
+    constructor(data: Json, raw: string, note = "") {
       this.data = data;
       this.original = data;
       this.raw = raw;
+      this.note = note;
     }
 
     mount(): void {
@@ -153,7 +156,7 @@ import {
       const size = new Blob([this.raw]).size;
       const info = document.createElement("span");
       info.className = "jv-info";
-      info.textContent = `${kindOf(this.data)} · ${formatBytes(size)}`;
+      info.textContent = `${kindOf(this.data)} · ${formatBytes(size)}${this.note ? " · " + this.note : ""}`;
 
       const collapseBtn = this.collapseBtn = button("Collapse level", () => this.collapseLevel());
       const expandBtn = this.expandBtn = button("Expand level", () => this.expandLevel());
@@ -807,13 +810,20 @@ import {
     await nextPaint();
 
     let data: Json;
+    let note = "";
     try {
       data = JSON.parse(raw) as Json;
     } catch (err) {
-      renderParseError(raw, err);
-      return;
+      const nd = tryParseNdjson(raw);
+      if (nd) {
+        data = nd;
+        note = "NDJSON";
+      } else {
+        renderParseError(raw, err);
+        return;
+      }
     }
-    new JsonView(data, raw).mount();
+    new JsonView(data, raw, note).mount();
   }
 
   function renderParseError(raw: string, err: unknown): void {

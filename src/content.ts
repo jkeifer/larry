@@ -406,8 +406,13 @@ import {
         if (end < this.rows.length && this.rows[end].closing && this.rows[end].depth === row.depth) end++;
         this.rows.splice(index + 1, end - (index + 1));
       } else {
-        // Expand: materialize children (honoring any nested expanded state),
-        // then this container's own closing bracket.
+        // Expand: refuse if this one node would explode the visible list.
+        if (this.rows.length + row.childCount > 200000) {
+          alert(`Expanding this would add ${row.childCount.toLocaleString()} rows and may stall the tab. Use the jq bar to filter it instead.`);
+          return;
+        }
+        // Materialize children (honoring any nested expanded state), then
+        // this container's own closing bracket.
         this.expanded.add(row.path);
         const sub: Row[] = [];
         for (const [label, child] of entriesOf(row.value, row.kind)) {

@@ -1,0 +1,156 @@
+/* Applied at document_start. Hides the browser's raw JSON render until the
+   script swaps in the viewer, then styles the viewer. Scoped under .jv-active
+   so this file is inert on every non-JSON page. */
+
+html.jv-active,
+html.jv-active body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--jv-bg);
+}
+html.jv-active body > pre { display: none; } /* the browser's default render */
+
+html.jv-active {
+  --jv-bg: #ffffff;
+  --jv-fg: #1f2328;
+  --jv-muted: #8a919b;
+  --jv-line: #e6e8eb;
+  --jv-bar: #f6f7f8;
+  --jv-key: #7a3e9d;
+  --jv-str: #0a7d33;
+  --jv-num: #1268c3;
+  --jv-bool: #b5330a;
+  --jv-null: #8a919b;
+  --jv-link: #1268c3;
+  --jv-hover: #f0f4f9;
+}
+@media (prefers-color-scheme: dark) {
+  html.jv-active {
+    --jv-bg: #0f1216;
+    --jv-fg: #d7dbe0;
+    --jv-muted: #6b7480;
+    --jv-line: #232830;
+    --jv-bar: #161a20;
+    --jv-key: #c792ea;
+    --jv-str: #7ee081;
+    --jv-num: #82aaff;
+    --jv-bool: #f78c6c;
+    --jv-null: #6b7480;
+    --jv-link: #82aaff;
+    --jv-hover: #1b2129;
+  }
+}
+
+.jv-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  color: var(--jv-fg);
+  font: 13px/1.4 ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+.jv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--jv-bar);
+  border-bottom: 1px solid var(--jv-line);
+  flex: 0 0 auto;
+}
+.jv-info { color: var(--jv-muted); }
+.jv-spacer { flex: 1 1 auto; }
+
+.jv-btn {
+  font: inherit;
+  color: var(--jv-fg);
+  background: transparent;
+  border: 1px solid var(--jv-line);
+  border-radius: 5px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.jv-btn:hover { background: var(--jv-hover); }
+.jv-btn:focus-visible { outline: 2px solid var(--jv-link); outline-offset: 1px; }
+.jv-btn:disabled { opacity: 0.4; cursor: default; }
+.jv-btn:disabled:hover { background: transparent; }
+
+.jv-scroller {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+}
+.jv-sizer { position: relative; width: 100%; }
+.jv-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  will-change: transform;
+}
+
+.jv-row {
+  position: relative;
+  height: 20px;
+  line-height: 20px;
+  white-space: pre;
+  overflow: hidden;
+}
+.jv-row:hover { background: var(--jv-hover); }
+
+.jv-copy {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  display: none;
+  padding: 0 5px;
+  color: var(--jv-muted);
+  cursor: pointer;
+  user-select: none;
+  background: var(--jv-hover);
+  border: 1px solid var(--jv-line);
+  border-radius: 4px;
+}
+.jv-row:hover .jv-copy { display: inline-block; }
+.jv-copy:hover { color: var(--jv-fg); }
+.jv-copied { color: var(--jv-str); }
+
+.jv-caret {
+  display: inline-block;
+  width: 14px;
+  color: var(--jv-muted);
+  cursor: pointer;
+  text-align: center;
+  user-select: none;
+}
+.jv-caret-empty { cursor: default; }
+
+.jv-key { color: var(--jv-key); cursor: pointer; }
+.jv-punct { color: var(--jv-muted); }
+.jv-summary { color: var(--jv-muted); font-style: italic; }
+.jv-str { color: var(--jv-str); }
+.jv-num { color: var(--jv-num); }
+.jv-bool { color: var(--jv-bool); }
+.jv-null { color: var(--jv-null); }
+.jv-link { color: var(--jv-link); text-decoration: underline; }
+
+.jv-str-hidden { display: none; }
+.jv-str.jv-expanded .jv-str-hidden { display: inline; }
+.jv-str.jv-expanded .jv-str-shown { display: none; }
+.jv-str-more { color: var(--jv-link); cursor: pointer; padding-left: 4px; }
+
+.jv-raw {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  flex: 1 1 auto;
+  color: var(--jv-fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.jv-loading { padding: 16px; color: var(--jv-muted); font-family: ui-monospace, monospace; }
+
+@media (prefers-reduced-motion: reduce) {
+  .jv-canvas { will-change: auto; }
+}

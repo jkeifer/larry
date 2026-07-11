@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Trustworthy JSON Viewer",
+  "version": "1.0.0",
+  "description": "Pretty-prints, highlights, and collapses JSON pages. No permissions, no network, no dependencies.",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start"
+    }
+  ]
+}

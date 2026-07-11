@@ -50,8 +50,28 @@ syntax-highlights, makes URLs clickable, and collapses/expands — built to be
 src/content.ts     the entire viewer (parse, virtualized tree, highlight, links, jq bar)
 src/content.css    styling (light/dark, fixed 20px row height)
 src/manifest.json  MV3 manifest — no permissions; loads jqjs.js then content.js
+src/icon.svg       `{ L }` monogram — rasterized to icon-{16,32,48,128}.png at build
 flake.nix          build derivation + jqjs input + NixOS/nix-darwin force-install modules
 (jqjs.js)          jq engine — fetched from the pinned flake input and shimmed at build time
+```
+
+### Icon
+
+The toolbar icon is a single vector source, `src/icon.svg` — no PNGs are
+committed. The build rasterizes it at 16/32/48/128px with `rsvg-convert`
+(from `librsvg`, in `nativeBuildInputs` and the dev shell) and copies the
+results into `dist/` / `$out/extension`. To change the icon, edit
+`src/icon.svg` and rebuild:
+
+```sh
+nix build
+open result/extension/icon-128.png   # eyeball it
+```
+
+Without Nix, install `librsvg` yourself and run the equivalent loop:
+
+```sh
+for s in 16 32 48 128; do rsvg-convert -w $s -h $s src/icon.svg -o dist/icon-$s.png; done
 ```
 
 ## Build
@@ -133,8 +153,8 @@ your own force-install; public just adds discoverability.
    this account.** A stolen or phished developer account is the single most
    common way "trusted" extensions get hijacked — it is the exact vector you're
    trying to escape, now relocated to an account you control, so lock it down.
-2. Upload `json-viewer.zip`. You'll need a 128×128 icon and store copy to pass
-   review (add an `icons` field to the manifest before zipping).
+2. Upload `json-viewer.zip`. It already bundles the 16/32/48/128 icons
+   rasterized from `src/icon.svg`; you'll still need store copy to pass review.
 3. After it's published, copy the **32-character extension ID** from the
    listing URL. That ID is what the Nix modules force-install.
 

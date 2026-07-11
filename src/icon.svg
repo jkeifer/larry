@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect width="128" height="128" rx="20" fill="#1268c3"/>
+  <g fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <!-- left brace: two straight strokes meeting at a point -->
+    <path d="M44 18 L20 64 L44 110"/>
+    <!-- right brace -->
+    <path d="M84 18 L108 64 L84 110"/>
+  </g>
+  <!-- L -->
+  <path d="M56 36 L56 84 L78 84" fill="none" stroke="#ffffff" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

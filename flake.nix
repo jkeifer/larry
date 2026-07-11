@@ -82,7 +82,7 @@
           pname = "json-viewer-extension";
           inherit version;
           src = ./.;
-          nativeBuildInputs = [ pkgs.typescript pkgs.zip ];
+          nativeBuildInputs = [ pkgs.typescript pkgs.zip pkgs.librsvg ];
           buildPhase = ''
             runHook preBuild
             tsc -p tsconfig.json
@@ -93,12 +93,16 @@
             # strip its `export` lines and expose the API as a global instead.
             grep -v '^export ' ${jqjs}/jq.js > dist/jqjs.js
             printf '\nglobalThis.jqjs = { compile, prettyPrint, compileNode, formats };\n' >> dist/jqjs.js
+            for s in 16 32 48 128; do
+              rsvg-convert -w $s -h $s src/icon.svg -o dist/icon-$s.png
+            done
             runHook postBuild
           '';
           installPhase = ''
             runHook preInstall
             mkdir -p $out/extension
             cp dist/jqjs.js dist/content.js dist/content.css dist/manifest.json $out/extension/
+            cp dist/icon-16.png dist/icon-32.png dist/icon-48.png dist/icon-128.png $out/extension/
             ( cd $out/extension && zip -qr "$out/json-viewer.zip" . )
             runHook postInstall
           '';
@@ -106,7 +110,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [ pkgs.typescript pkgs.nodejs ];
+          packages = [ pkgs.typescript pkgs.nodejs pkgs.librsvg ];
           shellHook = ''echo "tsc -p tsconfig.json --watch  # dev build into ./dist"'';
         };
       });

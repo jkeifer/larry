@@ -234,6 +234,10 @@ html.jv-active {
   outline: 1px solid var(--jv-num);
 }
 
+/* Virtual keyboard focus ring (not real DOM :focus — see renderRow). */
+.jv-focus { outline: 2px solid var(--jv-link); outline-offset: -2px; }
+.jv-scroller:focus-visible { outline: none; }
+
 .jv-raw {
   margin: 0;
   padding: 12px;

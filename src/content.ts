@@ -118,6 +118,9 @@ import {
     private findInput!: HTMLInputElement;
     private findCount!: HTMLElement;
 
+    // ---- Keyboard focus (virtual — real DOM focus fights virtualization) --
+    private focusIndex = 0;
+
     constructor(data: Json, raw: string, note = "") {
       this.data = data;
       this.original = data;
@@ -147,6 +150,37 @@ import {
         if (mod && (e.key === "f" || e.key === "F")) {
           e.preventDefault();
           this.openFind();
+        }
+      });
+
+      // Keyboard tree navigation. Separate listener from the find intercept
+      // above — they coexist independently. Ignore keys while typing in the
+      // jq/find inputs (or any other input/textarea) so navigation never
+      // fights text entry.
+      window.addEventListener("keydown", (e) => {
+        const t = e.target as HTMLElement;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+        switch (e.key) {
+          case "ArrowDown":
+            e.preventDefault();
+            this.moveFocus(1);
+            break;
+          case "ArrowUp":
+            e.preventDefault();
+            this.moveFocus(-1);
+            break;
+          case "ArrowRight":
+            e.preventDefault();
+            this.focusExpand();
+            break;
+          case "ArrowLeft":
+            e.preventDefault();
+            this.focusCollapse();
+            break;
+          case "Enter":
+            e.preventDefault();
+            this.toggle(this.focusIndex);
+            break;
         }
       });
 
@@ -201,6 +235,8 @@ import {
     private buildTree(): HTMLElement {
       this.scroller = document.createElement("div");
       this.scroller.className = "jv-scroller";
+      this.scroller.setAttribute("role", "tree");
+      this.scroller.tabIndex = 0;
       this.sizer = document.createElement("div");
       this.sizer.className = "jv-sizer";
       this.canvas = document.createElement("div");
@@ -378,6 +414,8 @@ import {
       this.autoExpand();
       this.rebuildRows();
       this.updateButtons();
+      // A query result can be a wholly different (and shorter) row set.
+      this.focusIndex = Math.min(this.focusIndex, this.rows.length - 1);
       this.clearBtn.style.display = isResult ? "" : "none";
       if (this.rawPre) this.rawPre.textContent = this.currentText();
       this.scroller.scrollTop = 0;
@@ -461,10 +499,18 @@ import {
 
     private scrollToMatch(): void {
       const idx = this.findMatches[this.findPos];
-      if (idx == null) return;
+      if (idx != null) this.scrollIndexIntoView(idx);
+    }
+
+    // Shared by find (scrollToMatch) and keyboard focus (moveFocus): scrolls
+    // the minimum amount needed to bring row `idx` fully into view, without
+    // jumping when it's already visible.
+    private scrollIndexIntoView(idx: number): void {
       const top = idx * ROW_H;
-      const view = this.scroller.clientHeight;
-      this.scroller.scrollTop = Math.max(0, top - view / 2); // center-ish
+      const viewTop = this.scroller.scrollTop;
+      const viewH = this.scroller.clientHeight;
+      if (top < viewTop) this.scroller.scrollTop = top;
+      else if (top + ROW_H > viewTop + viewH) this.scroller.scrollTop = top + ROW_H - viewH;
     }
 
     private openFind(): void {
@@ -481,6 +527,40 @@ import {
       this.findPos = -1;
       this.updateFindCount();
       this.scheduleRender();
+    }
+
+    // ---- Keyboard focus -----------------------------------------------------
+    private moveFocus(dir: number): void {
+      let i = this.focusIndex + dir;
+      while (i >= 0 && i < this.rows.length && this.rows[i].closing) i += dir; // skip closing rows
+      if (i < 0 || i >= this.rows.length) return;
+      this.focusIndex = i;
+      this.scrollIndexIntoView(i);
+      this.scheduleRender();
+    }
+
+    private focusExpand(): void {
+      const row = this.rows[this.focusIndex];
+      if (row?.expandable && !this.expanded.has(row.path)) this.toggle(this.focusIndex);
+      else this.moveFocus(1); // already open (or a leaf): descend
+    }
+
+    private focusCollapse(): void {
+      const row = this.rows[this.focusIndex];
+      if (row?.expandable && this.expanded.has(row.path)) {
+        this.toggle(this.focusIndex);
+        return;
+      }
+      // else jump to parent (nearest shallower non-closing row above)
+      const d = row ? row.depth : 0;
+      for (let j = this.focusIndex - 1; j >= 0; j--) {
+        if (!this.rows[j].closing && this.rows[j].depth < d) {
+          this.focusIndex = j;
+          this.scrollIndexIntoView(j);
+          this.scheduleRender();
+          return;
+        }
+      }
     }
 
     // ---- Row model ---------------------------------------------------------
@@ -562,6 +642,8 @@ import {
       this.sizer.style.height = `${this.rows.length * ROW_H}px`;
       this.updateButtons();
       if (this.findQuery.trim()) this.runFind();
+      // A collapse can shrink this.rows past the current focus index.
+      if (this.focusIndex >= this.rows.length) this.focusIndex = this.rows.length - 1;
       this.scheduleRender();
     }
 
@@ -795,12 +877,23 @@ import {
       }
 
       // Closing bracket row: an empty caret keeps it aligned under its key.
+      // No ARIA role — it's a synthetic punctuation row, not a tree node.
       if (row.closing) {
         const gap = document.createElement("span");
         gap.className = "jv-caret jv-caret-empty";
         el.append(gap, text(row.kind === "array" ? "]" : "}", "jv-punct"));
         return el;
       }
+
+      // ARIA: every real node is a treeitem at its 1-based nesting level;
+      // expandable nodes report their open/closed state. Focus is virtual
+      // (index-tracked, not real DOM focus — real focus fights the row
+      // recycling that virtualization relies on), so the focused row is
+      // marked with a class instead of :focus.
+      el.setAttribute("role", "treeitem");
+      el.setAttribute("aria-level", String(row.depth + 1));
+      if (row.expandable) el.setAttribute("aria-expanded", String(this.expanded.has(row.path)));
+      if (index === this.focusIndex) el.classList.add("jv-focus");
 
       // caret
       const caret = document.createElement("span");

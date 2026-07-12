@@ -15,5 +15,5 @@
     "removeComments": false,
     "outDir": "dist"
   },
-  "include": ["src/content.ts", "src/core.ts"]
+  "include": ["src/content.ts", "src/core.ts", "src/tree-model.ts", "src/find.ts", "src/copy.ts", "src/dom.ts"]
 }

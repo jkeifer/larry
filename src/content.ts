@@ -28,20 +28,16 @@ declare const jqjs: {
 
 import {
   Json,
-  Kind,
   kindOf,
-  isContainer,
-  childCountOf,
-  entriesOf,
-  childPath,
-  spliceInto,
   formatBytes,
-  searchableText,
   URL_RE,
   tryParseNdjson,
-  pathToJq,
   startsWithJsonChar,
 } from "./core";
+import { Row, TreeModel } from "./tree-model";
+import { FindController } from "./find";
+import { CopyController } from "./copy";
+import { text, button, spacer, flash } from "./dom";
 
 (() => {
   "use strict";
@@ -91,24 +87,13 @@ import {
     run();
   }
 
-  // ---- Types ---------------------------------------------------------------
-  interface Row {
-    path: string;          // stable id, e.g. $["a"][0]
-    label: string | null;  // object key or array index, null for the root row
-    value: Json;
-    depth: number;
-    kind: Kind;
-    expandable: boolean;
-    childCount: number;
-    closing?: boolean;     // synthetic "]" / "}" row that closes an expanded container
-  }
-
+  // ---- Constants -----------------------------------------------------------
+  // (The Row model, expansion state, and its ROW_BUDGET/EXPAND_CAP caps live in
+  // the DOM-free TreeModel; these are the rendering/query concerns that stay.)
   const ROW_H = 20;        // px, fixed so virtualization needs no measurement
   const INDENT = 16;       // px per depth level
   const OVERSCAN = 12;     // rows rendered above/below the viewport
-  const ROW_BUDGET = 100000; // fully expand on load unless it would exceed this many rows
   const QUERY_CAP = 200000;  // stop collecting jq outputs past this (guards runaway streams)
-  const EXPAND_CAP = 200000; // refuse a single expand/step that would materialize past this many rows
   const STR_MAX = 200;     // chars shown before a long string is truncated
 
   // ---- Helpers -------------------------------------------------------------
@@ -122,8 +107,7 @@ import {
   class JsonView {
     private data: Json;
     private raw: string;
-    private expanded = new Set<string>();
-    private rows: Row[] = [];
+    private model: TreeModel;
 
     private scroller!: HTMLDivElement;   // the scroll viewport
     private sizer!: HTMLDivElement;      // full-height spacer
@@ -141,13 +125,12 @@ import {
     private queryRunId = 0;
     private readonly note: string;
 
-    // ---- Find (in-tree) ----------------------------------------------------
-    private findQuery = "";
-    private findMatches: number[] = [];
-    private findPos = -1;
-    private findBar!: HTMLElement;
-    private findInput!: HTMLInputElement;
-    private findCount!: HTMLElement;
+    // ---- Find & copy (in their own modules) --------------------------------
+    // scrollIndexIntoView stays on JsonView (shared with keyboard focus) and is
+    // passed into the find controller; the copy controller reads the on-screen
+    // rows/canvas plus the model's parent lookup.
+    private readonly find: FindController;
+    private readonly copy: CopyController;
 
     // ---- Keyboard focus (virtual — real DOM focus fights virtualization) --
     private focusIndex = 0;
@@ -158,6 +141,24 @@ import {
       this.original = data;
       this.raw = raw;
       this.note = note;
+      this.model = new TreeModel(data);
+      this.find = new FindController({
+        getRows: () => this.rows,
+        scheduleRender: () => this.scheduleRender(),
+        scrollIndexIntoView: (i) => this.scrollIndexIntoView(i),
+      });
+      this.copy = new CopyController({
+        getRows: () => this.rows,
+        getCanvas: () => this.canvas,
+        parentIndexOf: (i) => this.model.parentIndexOf(i),
+      });
+    }
+
+    // Read-only view of the model's flattened row list. JsonView drives find,
+    // focus, rendering, and the sizer height off this; all mutation goes
+    // through the model's toggle/expand/collapse methods.
+    private get rows(): readonly Row[] {
+      return this.model.rows;
     }
 
     mount(): void {
@@ -167,7 +168,7 @@ import {
       const tree = this.buildTree();
       // The find bar anchors to the scroller (position: relative), overlaying
       // the tree's top-right corner.
-      this.scroller.appendChild(this.buildFindBar());
+      this.scroller.appendChild(this.find.buildBar());
       app.append(this.buildToolbar(), this.buildQueryBar(), tree);
 
       // Replace the page body wholesale with our UI.
@@ -181,7 +182,7 @@ import {
         const mod = e.ctrlKey || e.metaKey;
         if (mod && (e.key === "f" || e.key === "F")) {
           e.preventDefault();
-          this.openFind();
+          this.find.open();
         }
       });
 
@@ -207,26 +208,25 @@ import {
         this.scheduleRender(); // ensure the ring appears even if focus didn't move
       });
 
-      this.autoExpand();
-      this.rebuildRows();
+      this.model.autoExpand();
+      this.model.rebuildRows();
+      this.syncSizerHeight();
       this.updateButtons();
       this.scheduleRender();
+    }
+
+    // Keep the full-height spacer in sync with the current row count so the
+    // scrollbar reflects the whole (virtualized) list.
+    private syncSizerHeight(): void {
+      if (this.sizer) this.sizer.style.height = `${this.rows.length * ROW_H}px`;
     }
 
     // Disable a stepper when it has nothing left to do: Expand when every
     // container is open, Collapse when none is. Recomputed only on expansion
     // changes (never on scroll), so the short-circuiting scans stay cheap.
     private updateButtons(): void {
-      let canExpand = false;
-      let canCollapse = false;
-      for (const r of this.rows) {
-        if (!r.expandable) continue;
-        if (this.expanded.has(r.path)) canCollapse = true;
-        else canExpand = true;
-        if (canExpand && canCollapse) break;
-      }
-      this.expandBtn.disabled = !canExpand;
-      this.collapseBtn.disabled = !canCollapse;
+      this.expandBtn.disabled = !this.model.canExpand();
+      this.collapseBtn.disabled = !this.model.canCollapse();
     }
 
     // ---- Chrome ------------------------------------------------------------
@@ -280,13 +280,13 @@ import {
 
         const copyEl = target.closest<HTMLElement>(".jv-copy");
         if (copyEl) {
-          this.copyNode(index, copyEl);
+          this.copy.copyNode(index, copyEl);
           return;
         }
 
         const copyPathEl = target.closest<HTMLElement>(".jv-copypath");
         if (copyPathEl) {
-          this.copyPath(index, copyPathEl);
+          this.copy.copyPath(index, copyPathEl);
           return;
         }
 
@@ -302,7 +302,7 @@ import {
 
       // Selecting across rows and copying yields pretty-printed JSON of the
       // selected nodes, with real-space indentation, not the on-screen glyphs.
-      this.scroller.addEventListener("copy", (e) => this.onCopy(e as ClipboardEvent));
+      this.scroller.addEventListener("copy", (e) => this.copy.onCopy(e as ClipboardEvent));
 
       return this.scroller;
     }
@@ -433,12 +433,12 @@ import {
     private showData(data: Json, isResult: boolean): void {
       this.data = data;
       this.viewingResult = isResult;
-      this.expanded.clear();
-      this.autoExpand();
-      this.rebuildRows();
+      this.model.setData(data);
+      this.syncSizerHeight();
       this.updateButtons();
       // A query result can be a wholly different (and shorter) row set.
       this.focusIndex = Math.min(this.focusIndex, this.rows.length - 1);
+      this.find.refresh();
       this.clearBtn.style.display = isResult ? "" : "none";
       if (this.rawPre) this.rawPre.textContent = this.currentText();
       this.scroller.scrollTop = 0;
@@ -458,74 +458,8 @@ import {
       this.queryStatus.style.display = msg ? "" : "none";
     }
 
-    // ---- Find (in-tree) ----------------------------------------------------
-    private buildFindBar(): HTMLElement {
-      const bar = this.findBar = document.createElement("div");
-      bar.className = "jv-find";
-      const input = this.findInput = document.createElement("input");
-      input.type = "text";
-      input.className = "jv-find-input";
-      input.placeholder = "find in view";
-      input.spellcheck = false;
-      input.setAttribute("autocorrect", "off");
-      input.autocapitalize = "off";
-      input.addEventListener("input", () => { this.findQuery = input.value; this.runFind(); });
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); this.stepFind(e.shiftKey ? -1 : 1); }
-        else if (e.key === "Escape") { e.preventDefault(); this.closeFind(); }
-      });
-      const count = this.findCount = document.createElement("span");
-      count.className = "jv-find-count";
-      const prev = button("↑", () => this.stepFind(-1));
-      prev.title = "Previous match (Shift+Enter)";
-      const next = button("↓", () => this.stepFind(1));
-      next.title = "Next match (Enter)";
-      const close = button("✕", () => this.closeFind());
-      close.title = "Close (Esc)";
-      bar.append(input, count, prev, next, close);
-      return bar;
-    }
-
-    // The lowercased haystack matched against the query. Closing rows never
-    // match; the pure rule lives in core.searchableText for unit testing.
-    private rowSearchText(row: Row): string {
-      if (row.closing) return "";
-      return searchableText(row.label, row.kind, row.value);
-    }
-
-    private runFind(): void {
-      const q = this.findQuery.trim().toLowerCase();
-      this.findMatches = [];
-      if (q) {
-        for (let i = 0; i < this.rows.length; i++) {
-          if (this.rowSearchText(this.rows[i]).includes(q)) this.findMatches.push(i);
-        }
-      }
-      this.findPos = this.findMatches.length ? 0 : -1;
-      this.updateFindCount();
-      if (this.findPos >= 0) this.scrollToMatch();
-      this.scheduleRender(); // repaint highlight classes
-    }
-
-    private stepFind(dir: number): void {
-      if (!this.findMatches.length) return;
-      this.findPos = (this.findPos + dir + this.findMatches.length) % this.findMatches.length;
-      this.updateFindCount();
-      this.scrollToMatch();
-      this.scheduleRender();
-    }
-
-    private updateFindCount(): void {
-      const n = this.findMatches.length;
-      this.findCount.textContent = n ? `${this.findPos + 1}/${n}` : (this.findQuery.trim() ? "0/0" : "");
-    }
-
-    private scrollToMatch(): void {
-      const idx = this.findMatches[this.findPos];
-      if (idx != null) this.scrollIndexIntoView(idx);
-    }
-
-    // Shared by find (scrollToMatch) and keyboard focus (moveFocus): scrolls
+    // ---- Scroll helper -----------------------------------------------------
+    // Shared by find (its scroll-to-match) and keyboard focus (moveFocus): scrolls
     // the minimum amount needed to bring row `idx` fully into view, without
     // jumping when it's already visible.
     private scrollIndexIntoView(idx: number): void {
@@ -534,22 +468,6 @@ import {
       const viewH = this.scroller.clientHeight;
       if (top < viewTop) this.scroller.scrollTop = top;
       else if (top + ROW_H > viewTop + viewH) this.scroller.scrollTop = top + ROW_H - viewH;
-    }
-
-    private openFind(): void {
-      this.findBar.classList.add("jv-open");
-      this.findInput.focus();
-      this.findInput.select();
-    }
-
-    private closeFind(): void {
-      this.findBar.classList.remove("jv-open");
-      this.findQuery = "";
-      this.findInput.value = "";
-      this.findMatches = [];
-      this.findPos = -1;
-      this.updateFindCount();
-      this.scheduleRender();
     }
 
     // ---- Keyboard focus -----------------------------------------------------
@@ -564,193 +482,69 @@ import {
 
     private focusExpand(): void {
       const row = this.rows[this.focusIndex];
-      if (row?.expandable && !this.expanded.has(row.path)) this.toggle(this.focusIndex);
+      if (row?.expandable && !this.model.expanded.has(row.path)) this.toggle(this.focusIndex);
       else this.moveFocus(1); // already open (or a leaf): descend
     }
 
     private focusCollapse(): void {
       const row = this.rows[this.focusIndex];
-      if (row?.expandable && this.expanded.has(row.path)) {
+      if (row?.expandable && this.model.expanded.has(row.path)) {
         this.toggle(this.focusIndex);
         return;
       }
       // else jump to parent (nearest shallower non-closing row above)
-      const d = row ? row.depth : 0;
-      for (let j = this.focusIndex - 1; j >= 0; j--) {
-        if (!this.rows[j].closing && this.rows[j].depth < d) {
-          this.focusIndex = j;
-          this.scrollIndexIntoView(j);
-          this.scheduleRender();
-          return;
-        }
+      const j = this.model.parentIndexOf(this.focusIndex);
+      if (j !== -1) {
+        this.focusIndex = j;
+        this.scrollIndexIntoView(j);
+        this.scheduleRender();
       }
     }
 
-    // ---- Row model ---------------------------------------------------------
-    private makeRow(path: string, label: string | null, value: Json, depth: number): Row {
-      const kind = kindOf(value);
-      return {
-        path,
-        label,
-        value,
-        depth,
-        kind,
-        expandable: isContainer(kind) && childCountOf(value, kind) > 0,
-        childCount: childCountOf(value, kind),
-      };
-    }
-
-    // A container's closing bracket, rendered as its own row at the container's
-    // depth so an expanded object/array reads `{ … }` with a matching brace.
-    private closeRow(row: Row): Row {
-      return {
-        path: row.path + " )",
-        label: null,
-        value: null,
-        depth: row.depth,
-        kind: row.kind,
-        expandable: false,
-        childCount: 0,
-        closing: true,
-      };
-    }
-
-    // Depth-first materialization honoring the current `expanded` set.
-    private materialize(row: Row, out: Row[]): void {
-      out.push(row);
-      if (!row.expandable || !this.expanded.has(row.path)) return;
-      for (const [label, child] of entriesOf(row.value, row.kind)) {
-        this.materialize(this.makeRow(childPath(row.path, label, row.kind), label, child, row.depth + 1), out);
-      }
-      out.push(this.closeRow(row));
-    }
-
-    private rebuildRows(): void {
-      const out: Row[] = [];
-      this.materialize(this.makeRow("$", null, this.data, 0), out);
-      this.rows = out;
-      if (this.sizer) this.sizer.style.height = `${this.rows.length * ROW_H}px`;
-      // Row indices changed; recompute matches against the new set. runFind
-      // calls scheduleRender (not rebuildRows), so there is no recursion.
-      if (this.findQuery.trim()) this.runFind();
-    }
-
+    // ---- Row model (thin wrappers over TreeModel + DOM sync) ---------------
+    // Expand/collapse the container at `index`. The DOM-free model does the row
+    // splicing; JsonView owns the sizer height, buttons, find re-run, focus
+    // clamp, repaint, and — on a cap refusal — the alert.
     private toggle(index: number): void {
       const row = this.rows[index];
       if (!row || !row.expandable) return;
 
-      if (this.expanded.has(row.path)) {
-        // Collapse: drop the descendant block plus this container's close row.
-        this.expanded.delete(row.path);
-        let end = index + 1;
-        while (end < this.rows.length && this.rows[end].depth > row.depth) end++;
-        if (end < this.rows.length && this.rows[end].closing && this.rows[end].depth === row.depth) end++;
-        this.rows.splice(index + 1, end - (index + 1));
-      } else {
-        // Expand: refuse if this one node would explode the visible list.
-        if (this.rows.length + row.childCount > EXPAND_CAP) {
-          alert(`Expanding this would add ${row.childCount.toLocaleString()} rows and may stall the tab. Use the jq bar to filter it instead.`);
-          return;
-        }
-        // Materialize children (honoring any nested expanded state), then
-        // this container's own closing bracket.
-        this.expanded.add(row.path);
-        const sub: Row[] = [];
-        for (const [label, child] of entriesOf(row.value, row.kind)) {
-          this.materialize(this.makeRow(childPath(row.path, label, row.kind), label, child, row.depth + 1), sub);
-        }
-        sub.push(this.closeRow(row));
-        spliceInto(this.rows, index + 1, sub);
+      const result = this.model.toggle(index);
+      if (!result.ok) {
+        // EXPAND_CAP refusal: same message text as before the extraction.
+        alert(`Expanding this would add ${result.wouldAdd.toLocaleString()} rows and may stall the tab. Use the jq bar to filter it instead.`);
+        return;
       }
-      this.sizer.style.height = `${this.rows.length * ROW_H}px`;
+      this.syncSizerHeight();
       this.updateButtons();
-      if (this.findQuery.trim()) this.runFind();
+      this.find.refresh();
       // A collapse can shrink this.rows past the current focus index.
       if (this.focusIndex >= this.rows.length) this.focusIndex = this.rows.length - 1;
       this.scheduleRender();
     }
 
-    private autoExpand(): void {
-      // Fully expand by default. Virtualization bounds the DOM, but neither the
-      // row model nor the sizer height is bounded, so we only fall back to
-      // collapsing when a full expansion would materialize more than ROW_BUDGET
-      // rows. In that case we keep the shallowest levels — which show the
-      // document's overall shape — and leave the deepest levels collapsed.
-      this.markToDepth(this.data, "$", 0, this.fitDepth(ROW_BUDGET));
-    }
-
-    // Largest depth D such that the node count at depth <= D fits `budget`
-    // (Infinity when the whole document fits). Walked breadth-first so a huge
-    // document stops early instead of counting every node.
-    private fitDepth(budget: number): number {
-      let cumulative = 0;
-      let level: Json[] = [this.data];
-      let depth = 0;
-      while (level.length) {
-        cumulative += level.length;
-        if (cumulative > budget) return Math.max(0, depth - 1);
-        const next: Json[] = [];
-        for (const v of level) {
-          const k = kindOf(v);
-          if (isContainer(k)) for (const [, child] of entriesOf(v, k)) next.push(child);
-        }
-        level = next;
-        depth++;
-      }
-      return Infinity; // whole document fits within the budget
-    }
-
-    // Mark every non-empty container shallower than `maxDepth` as expanded.
-    private markToDepth(v: Json, path: string, d: number, maxDepth: number): void {
-      const k = kindOf(v);
-      if (!isContainer(k) || childCountOf(v, k) === 0 || d >= maxDepth) return;
-      this.expanded.add(path);
-      for (const [label, child] of entriesOf(v, k)) {
-        this.markToDepth(child, childPath(path, label, k), d + 1, maxDepth);
-      }
-    }
-
     // Open the outer edge one layer deeper: every collapsed container that is
     // currently visible becomes expanded. Repeated presses unfold the tree.
     private expandLevel(): void {
-      const frontier = this.rows.filter((r) => r.expandable && !this.expanded.has(r.path));
-      if (frontier.length === 0) return; // already fully expanded
-      const added = frontier.reduce((sum, r) => sum + r.childCount, 0);
-      if (this.rows.length + added > EXPAND_CAP) {
-        alert(`That would show ${(this.rows.length + added).toLocaleString()} rows. Expand nodes individually instead.`);
+      const result = this.model.expandLevel();
+      if (!result.ok) {
+        // EXPAND_CAP refusal: same message text as before the extraction.
+        alert(`That would show ${(this.rows.length + result.wouldAdd).toLocaleString()} rows. Expand nodes individually instead.`);
         return;
       }
-      for (const r of frontier) this.expanded.add(r.path);
-      this.rebuildRows();
+      this.syncSizerHeight();
       this.updateButtons();
+      this.find.refresh();
       this.scheduleRender();
     }
 
     // Close the innermost open layer: every expanded container with no expanded
-    // container beneath it (the root included, so it can fold to one line). One
-    // DFS pass, tracking per-container whether it holds an expanded descendant.
+    // container beneath it (the root included, so it can fold to one line).
     private collapseLevel(): void {
-      const innermost: Row[] = [];
-      const stack: { row: Row; hasExpandedChild: boolean }[] = [];
-      const drain = (untilDepth: number): void => {
-        while (stack.length && untilDepth <= stack[stack.length - 1].row.depth) {
-          const top = stack.pop()!;
-          if (!top.hasExpandedChild) innermost.push(top.row);
-        }
-      };
-      for (const r of this.rows) {
-        drain(r.depth);
-        if (r.expandable && this.expanded.has(r.path)) {
-          if (stack.length) stack[stack.length - 1].hasExpandedChild = true;
-          stack.push({ row: r, hasExpandedChild: false });
-        }
-      }
-      drain(-1);
-
-      if (innermost.length === 0) return; // nothing is expanded
-      for (const r of innermost) this.expanded.delete(r.path);
-      this.rebuildRows();
+      this.model.collapseLevel();
+      this.syncSizerHeight();
       this.updateButtons();
+      this.find.refresh();
       this.scheduleRender();
     }
 
@@ -770,92 +564,6 @@ import {
         this.scroller.style.display = "";
         if (this.rawPre) this.rawPre.style.display = "none";
       }
-    }
-
-    // ---- Copy --------------------------------------------------------------
-    // Per-row: copy this node's entire subtree, however large, as pretty JSON.
-    private async copyNode(index: number, el: HTMLElement): Promise<void> {
-      const row = this.rows[index];
-      if (!row) return;
-      try {
-        await navigator.clipboard.writeText(JSON.stringify(row.value, null, 2));
-        el.classList.add("jv-copied");
-        setTimeout(() => el.classList.remove("jv-copied"), 900);
-      } catch {
-        /* clipboard blocked by the page context; nothing safe to do */
-      }
-    }
-
-    // Per-row: copy the jq expression that selects this node (e.g. .links[3].href).
-    private async copyPath(index: number, el: HTMLElement): Promise<void> {
-      const row = this.rows[index];
-      if (!row) return;
-      try {
-        await navigator.clipboard.writeText(pathToJq(row.path));
-        el.classList.add("jv-copied");
-        setTimeout(() => el.classList.remove("jv-copied"), 900);
-      } catch {
-        /* clipboard blocked by the page context; nothing safe to do */
-      }
-    }
-
-    private onCopy(e: ClipboardEvent): void {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-
-      // A selection sitting entirely inside one text node is a substring copy
-      // (e.g. part of a string value) — leave that to the browser untouched.
-      if (sel.anchorNode === sel.focusNode && sel.anchorNode?.nodeType === Node.TEXT_NODE) {
-        return;
-      }
-
-      // Which rendered rows does the selection touch? (Off-screen rows do not
-      // exist in the DOM — for those, use the per-row copy affordance.)
-      const indices: number[] = [];
-      this.canvas.querySelectorAll<HTMLElement>(".jv-row").forEach((el) => {
-        if (sel.containsNode(el, true)) {
-          const i = Number(el.dataset.index);
-          if (!Number.isNaN(i) && !this.rows[i]?.closing) indices.push(i);
-        }
-      });
-      if (indices.length === 0) return;
-
-      indices.sort((a, b) => a - b);
-      e.clipboardData?.setData("text/plain", this.selectionToJson(indices));
-      e.preventDefault();
-    }
-
-    // Pretty-printed JSON for a set of selected row indices. Only the top-level
-    // nodes of the selection matter — a node with a selected ancestor is already
-    // contained in that ancestor's output. A single resolved node copies as
-    // clean valid JSON; several siblings copy as an object/array fragment.
-    private selectionToJson(indices: number[]): string {
-      const selected = new Set(indices);
-      const parentOf = (i: number): number => {
-        const d = this.rows[i].depth;
-        for (let j = i - 1; j >= 0; j--) {
-          if (this.rows[j].closing) continue;
-          if (this.rows[j].depth < d) return j;
-        }
-        return -1;
-      };
-      const hasSelectedAncestor = (i: number): boolean => {
-        for (let p = parentOf(i); p !== -1; p = parentOf(p)) if (selected.has(p)) return true;
-        return false;
-      };
-      const roots = indices.filter((i) => !hasSelectedAncestor(i));
-      if (roots.length === 1) return JSON.stringify(this.rows[roots[0]].value, null, 2);
-      return roots
-        .map((i) => {
-          const row = this.rows[i];
-          const value = JSON.stringify(row.value, null, 2);
-          const parent = parentOf(i);
-          const parentKind = parent === -1 ? null : this.rows[parent].kind;
-          return row.label !== null && parentKind === "object"
-            ? `${JSON.stringify(row.label)}: ${value}`
-            : value;
-        })
-        .join(",\n");
     }
 
     // ---- Rendering (virtualized) ------------------------------------------
@@ -888,15 +596,12 @@ import {
       el.style.paddingLeft = `${row.depth * INDENT}px`;
 
       // Find highlight: a matching row gets a "hit" tint; the current match a
-      // stronger one. Membership is recomputed from the query so it survives
-      // any re-materialization (indices in findMatches always refer to the
-      // freshly rebuilt row set — runFind re-runs on every row-set change).
-      if (this.findMatches.length) {
-        const q = this.findQuery.trim().toLowerCase();
-        if (q && this.rowSearchText(row).includes(q)) {
-          el.classList.add("jv-find-hit");
-          if (this.findMatches[this.findPos] === index) el.classList.add("jv-find-current");
-        }
+      // stronger one. The find controller owns the match set and answers both
+      // in O(1) (indices always refer to the freshly rebuilt row set — find
+      // re-runs on every row-set change).
+      if (this.find.isHit(index)) {
+        el.classList.add("jv-find-hit");
+        if (this.find.isCurrent(index)) el.classList.add("jv-find-current");
       }
 
       // Closing bracket row: an empty caret keeps it aligned under its key.
@@ -915,14 +620,14 @@ import {
       // marked with a class instead of :focus.
       el.setAttribute("role", "treeitem");
       el.setAttribute("aria-level", String(row.depth + 1));
-      if (row.expandable) el.setAttribute("aria-expanded", String(this.expanded.has(row.path)));
+      if (row.expandable) el.setAttribute("aria-expanded", String(this.model.expanded.has(row.path)));
       if (this.navActive && index === this.focusIndex) el.classList.add("jv-focus");
 
       // caret
       const caret = document.createElement("span");
       caret.className = "jv-caret";
       if (row.expandable) {
-        caret.textContent = this.expanded.has(row.path) ? "▾" : "▸";
+        caret.textContent = this.model.expanded.has(row.path) ? "▾" : "▸";
       } else {
         caret.classList.add("jv-caret-empty");
       }
@@ -966,7 +671,7 @@ import {
           const close = row.kind === "array" ? "]" : "}";
           if (row.childCount === 0) {
             wrap.appendChild(text(open + close, "jv-punct"));
-          } else if (this.expanded.has(row.path)) {
+          } else if (this.model.expanded.has(row.path)) {
             wrap.appendChild(text(open, "jv-punct"));
           } else {
             wrap.appendChild(text(open, "jv-punct"));
@@ -1028,32 +733,6 @@ import {
       span.append(shown, full, more);
       return span;
     }
-  }
-
-  // ---- Small DOM utilities -------------------------------------------------
-  function text(t: string, cls: string): HTMLSpanElement {
-    const s = document.createElement("span");
-    s.className = cls;
-    s.textContent = t;
-    return s;
-  }
-  function button(label: string, onClick: () => void): HTMLButtonElement {
-    const b = document.createElement("button");
-    b.className = "jv-btn";
-    b.type = "button";
-    b.textContent = label;
-    b.addEventListener("click", onClick);
-    return b;
-  }
-  function spacer(): HTMLElement {
-    const s = document.createElement("span");
-    s.className = "jv-spacer";
-    return s;
-  }
-  function flash(btn: HTMLButtonElement, msg: string): void {
-    const prev = btn.textContent;
-    btn.textContent = msg;
-    setTimeout(() => (btn.textContent = prev), 1200);
   }
 
   // ---- Bootstrapping -------------------------------------------------------

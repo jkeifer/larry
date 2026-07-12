@@ -13,6 +13,5 @@ jobs:
       - run: nix develop -c npm run typecheck
       - run: nix develop -c npm test
       - run: nix develop -c npx playwright install --with-deps chromium
-      - run: sudo apt-get update && sudo apt-get install -y xvfb
-      - run: nix develop -c xvfb-run --auto-servernum npm run e2e
+      - run: nix develop -c npm run e2e
       - run: nix develop -c prek run --all-files --show-diff-on-failure

@@ -1,7 +1,4 @@
-import { test, expect, chromium } from "@playwright/test";
-import { fileURLToPath } from "node:url";
-
-const ext = fileURLToPath(new URL("../../result/extension", import.meta.url));
+import { test, expect } from "./fixtures";
 
 // The jq bar drains jqjs's generator over `/big-array.json` (a 250k-element
 // array, served on the fly by test/serve.mjs). `.big[] | select(. % 2 == 0)`
@@ -12,12 +9,7 @@ const ext = fileURLToPath(new URL("../../result/extension", import.meta.url));
 const HEAVY_QUERY = ".big[] | select(. % 2 == 0)";
 
 test.describe("jq execution (time-sliced, cancelable)", () => {
-  test("a second query supersedes an in-flight first query", async () => {
-    const ctx = await chromium.launchPersistentContext("", {
-      headless: false,
-      args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-    });
-    const page = await ctx.newPage();
+  test("a second query supersedes an in-flight first query", async ({ page }) => {
     await page.goto("http://localhost:8731/big-array.json");
     await expect(page.locator(".jv-app")).toBeVisible();
 
@@ -39,16 +31,11 @@ test.describe("jq execution (time-sliced, cancelable)", () => {
     await expect(page.locator(".jv-query-status")).toHaveText(/1 result/);
     await expect(page.locator(".jv-row")).toHaveCount(1);
     await expect(page.locator(".jv-row").first()).toContainText("250000");
-
-    await ctx.close();
   });
 
-  test("status shows a running state during a heavy query, then a result count", async () => {
-    const ctx = await chromium.launchPersistentContext("", {
-      headless: false,
-      args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-    });
-    const page = await ctx.newPage();
+  test("status shows a running state during a heavy query, then a result count", async ({
+    page,
+  }) => {
     await page.goto("http://localhost:8731/big-array.json");
     await expect(page.locator(".jv-app")).toBeVisible();
 
@@ -64,16 +51,11 @@ test.describe("jq execution (time-sliced, cancelable)", () => {
 
     // Once it completes, the status reflects the final result count.
     await expect(status).toHaveText(/125000 results?/, { timeout: 15000 });
-
-    await ctx.close();
   });
 
-  test("Clear cancels an in-flight query and restores the original document", async () => {
-    const ctx = await chromium.launchPersistentContext("", {
-      headless: false,
-      args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-    });
-    const page = await ctx.newPage();
+  test("Clear cancels an in-flight query and restores the original document", async ({
+    page,
+  }) => {
     await page.goto("http://localhost:8731/big-array.json");
     await expect(page.locator(".jv-app")).toBeVisible();
 
@@ -90,7 +72,5 @@ test.describe("jq execution (time-sliced, cancelable)", () => {
     await expect(page.locator(".jv-query-status")).toBeHidden();
     await expect(page.locator(".jv-row")).toHaveCount(3);
     await expect(page.locator(".jv-row").nth(1)).toContainText("big");
-
-    await ctx.close();
   });
 });

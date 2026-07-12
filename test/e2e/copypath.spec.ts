@@ -1,20 +1,13 @@
-import { test, expect, chromium } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import { test, expect } from "./fixtures";
 
-const ext = fileURLToPath(new URL("../../result/extension", import.meta.url));
-
-test("clicking a row's copy-path affordance copies the jq path to the clipboard", async () => {
-  const ctx = await chromium.launchPersistentContext("", {
-    // Headless Chromium does not reliably load unpacked extensions on this
-    // machine; run headed (CI runs this under xvfb-run).
-    headless: false,
-    args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-  });
+test("clicking a row's copy-path affordance copies the jq path to the clipboard", async ({
+  context,
+  page,
+}) => {
   // Clipboard access requires an explicit grant in a persistent context —
   // without it, navigator.clipboard.writeText()/readText() reject silently.
-  await ctx.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 
-  const page = await ctx.newPage();
   await page.goto("http://localhost:8731/catalog.json");
   await expect(page.locator(".jv-app")).toBeVisible();
   await expect(page.locator(".jv-row").first()).toBeVisible();
@@ -33,6 +26,4 @@ test("clicking a row's copy-path affordance copies the jq path to the clipboard"
 
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toBe(".links[3].href");
-
-  await ctx.close();
 });

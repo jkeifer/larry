@@ -1,10 +1,7 @@
-import { test, expect, chromium } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import { test, expect } from "./fixtures";
 
-const ext = fileURLToPath(new URL("../../result/extension", import.meta.url));
-
-// Task 11: larry's content-type gate is narrow (application/json or +json),
-// but a lone JSON/NDJSON body served with a *wrong* content-type (e.g.
+// Task 11: larry's content-type gate is narrow (application/json or
+// +json), but a lone JSON/NDJSON body served with a *wrong* content-type (e.g.
 // text/plain, or a saved file:// page) should still activate larry. The
 // dangerous failure mode this guards against: naively deferring the decision
 // to activate() at document_start (body not yet populated) could let *every*
@@ -12,25 +9,15 @@ const ext = fileURLToPath(new URL("../../result/extension", import.meta.url));
 // fallback once the body has many elements. That must never happen — see the
 // second test below.
 
-test("JSON served with content-type text/plain still activates larry", async () => {
-  const ctx = await chromium.launchPersistentContext("", {
-    headless: false,
-    args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-  });
-  const page = await ctx.newPage();
+test("JSON served with content-type text/plain still activates larry", async ({ page }) => {
   await page.goto("http://localhost:8731/catalog-as-text-plain");
   await expect(page.locator(".jv-app")).toBeVisible();
   await expect(page.locator(".jv-row").first()).toBeVisible();
-  await ctx.close();
 });
 
-test("an ordinary HTML page stays inert: no larry UI, no error screen, page content intact, and no re-fetch", async () => {
-  const ctx = await chromium.launchPersistentContext("", {
-    headless: false,
-    args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-  });
-  const page = await ctx.newPage();
-
+test("an ordinary HTML page stays inert: no larry UI, no error screen, page content intact, and no re-fetch", async ({
+  page,
+}) => {
   // Count requests to the page's own URL — if activate() ever falls through
   // to getRawText()'s fetch(location.href) fallback on this page, we'd see a
   // second request for the same document. That is exactly the regression
@@ -61,6 +48,4 @@ test("an ordinary HTML page stays inert: no larry UI, no error screen, page cont
   // No re-fetch of the page's own document.
   const selfRequests = requestedUrls.filter((u) => u.endsWith("/page.html"));
   expect(selfRequests.length).toBe(1);
-
-  await ctx.close();
 });

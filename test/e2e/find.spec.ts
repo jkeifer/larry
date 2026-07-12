@@ -1,16 +1,6 @@
-import { test, expect, chromium } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import { test, expect } from "./fixtures";
 
-const ext = fileURLToPath(new URL("../../result/extension", import.meta.url));
-
-test("Ctrl+F opens larry's in-tree find and navigates matches", async () => {
-  const ctx = await chromium.launchPersistentContext("", {
-    // Headless Chromium does not reliably load unpacked extensions on this
-    // machine; run headed (CI runs this under xvfb-run).
-    headless: false,
-    args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-  });
-  const page = await ctx.newPage();
+test("Ctrl+F opens larry's in-tree find and navigates matches", async ({ page }) => {
   await page.goto("http://localhost:8731/catalog.json");
   await expect(page.locator(".jv-app")).toBeVisible();
   await expect(page.locator(".jv-row").first()).toBeVisible();
@@ -46,6 +36,4 @@ test("Ctrl+F opens larry's in-tree find and navigates matches", async () => {
   await input.press("Escape");
   await expect(bar).toHaveCount(0);
   await expect(page.locator(".jv-find-hit")).toHaveCount(0);
-
-  await ctx.close();
 });

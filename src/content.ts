@@ -146,6 +146,8 @@ import { text, button, spacer, flash } from "./dom";
         getRows: () => this.rows,
         scheduleRender: () => this.scheduleRender(),
         scrollIndexIntoView: (i) => this.scrollIndexIntoView(i),
+        scrollToFraction: (f) => this.scrollToFraction(f),
+        scrollbarWidth: () => this.scroller.offsetWidth - this.scroller.clientWidth,
       });
       this.copy = new CopyController({
         getRows: () => this.rows,
@@ -172,7 +174,7 @@ import { text, button, spacer, flash } from "./dom";
       // match scrolls the viewport.
       const treeWrap = document.createElement("div");
       treeWrap.className = "jv-tree-wrap";
-      treeWrap.append(tree, this.find.buildBar());
+      treeWrap.append(tree, this.find.buildGutter(), this.find.buildBar());
       app.append(this.buildToolbar(), this.buildQueryBar(), treeWrap);
 
       // Replace the page body wholesale with our UI.
@@ -272,7 +274,12 @@ import { text, button, spacer, flash } from "./dom";
       this.scroller.appendChild(this.sizer);
 
       this.scroller.addEventListener("scroll", () => this.scheduleRender(), { passive: true });
-      window.addEventListener("resize", () => this.scheduleRender(), { passive: true });
+      // Resize repaints the window and re-places the find gutter ticks (their
+      // offsets are relative to the track height, which the window changes).
+      window.addEventListener("resize", () => {
+        this.scheduleRender();
+        this.find.reflowGutter();
+      }, { passive: true });
 
       // One delegated click handler for every caret in the (recycled) rows.
       this.scroller.addEventListener("click", (e) => {
@@ -472,6 +479,13 @@ import { text, button, spacer, flash } from "./dom";
       const viewH = this.scroller.clientHeight;
       if (top < viewTop) this.scroller.scrollTop = top;
       else if (top + ROW_H > viewTop + viewH) this.scroller.scrollTop = top + ROW_H - viewH;
+    }
+
+    // Scroll so `fraction` (0..1) of the scrollable range is above the viewport.
+    // Used by the find gutter when a click lands between match ticks.
+    private scrollToFraction(fraction: number): void {
+      const max = this.scroller.scrollHeight - this.scroller.clientHeight;
+      this.scroller.scrollTop = Math.max(0, Math.min(1, fraction)) * max;
     }
 
     // ---- Keyboard focus -----------------------------------------------------

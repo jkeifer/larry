@@ -7,7 +7,7 @@
 // JsonView keeps scrollIndexIntoView (shared with keyboard focus) and passes
 // it in; the controller never scrolls the viewport directly.
 
-import { searchableText } from "./core";
+import { searchableText, tickPositions } from "./core";
 import { Row } from "./tree-model";
 import { button } from "./dom";
 
@@ -15,10 +15,14 @@ import { button } from "./dom";
 // current rows, asks JsonView to repaint (highlight classes) after matching
 // changes, and delegates scrolling a matched row into view (the same routine
 // keyboard focus uses, so it stays on JsonView rather than being duplicated).
+// scrollToFraction (empty-gutter clicks) and scrollbarWidth (inset the gutter
+// flush-left of the native scrollbar) keep all viewport geometry on JsonView.
 export interface FindDeps {
   getRows: () => readonly Row[];
   scheduleRender: () => void;
   scrollIndexIntoView: (index: number) => void;
+  scrollToFraction: (fraction: number) => void;
+  scrollbarWidth: () => number;
 }
 
 export class FindController {
@@ -29,6 +33,7 @@ export class FindController {
   private findBar!: HTMLElement;
   private findInput!: HTMLInputElement;
   private findCount!: HTMLElement;
+  private findGutter!: HTMLElement;
 
   constructor(private readonly deps: FindDeps) {}
 
@@ -72,6 +77,20 @@ export class FindController {
     return bar;
   }
 
+  // The scrollbar match gutter: a thin strip pinned to the right edge of the
+  // tree, carrying one tick per match position so you can see, at a glance,
+  // where matches sit across the whole (virtualized) document. Clicking a tick
+  // jumps to that match; clicking elsewhere scrolls the viewport to that
+  // fraction. Only visible while a find has matches. Lives in the same
+  // non-scrolling wrapper as the find bar (see JsonView.mount).
+  buildGutter(): HTMLElement {
+    const g = this.findGutter = document.createElement("div");
+    g.className = "jv-find-gutter";
+    g.title = "Find matches — click to jump";
+    g.addEventListener("click", (e) => this.onGutterClick(e));
+    return g;
+  }
+
   // ---- Public surface for JsonView ---------------------------------------
   open(): void {
     this.findBar.classList.add("jv-open");
@@ -87,7 +106,15 @@ export class FindController {
     this.findMatchSet.clear();
     this.findPos = -1;
     this.updateFindCount();
+    this.renderGutter();
     this.deps.scheduleRender();
+  }
+
+  // Re-place the gutter ticks after a viewport resize — their pixel offsets
+  // depend on the track height, which changes with the window. Cheap no-op
+  // while find is inactive (renderGutter clears on an empty match set).
+  reflowGutter(): void {
+    this.renderGutter();
   }
 
   // Re-run matching against the current rows. A no-op (beyond clearing) when
@@ -120,6 +147,7 @@ export class FindController {
     }
     this.findPos = this.findMatches.length ? 0 : -1;
     this.updateFindCount();
+    this.renderGutter();
     if (this.findPos >= 0) this.scrollToMatch();
     this.deps.scheduleRender(); // repaint highlight classes
   }
@@ -128,6 +156,7 @@ export class FindController {
     if (!this.findMatches.length) return;
     this.findPos = (this.findPos + dir + this.findMatches.length) % this.findMatches.length;
     this.updateFindCount();
+    this.renderGutter();
     this.scrollToMatch();
     this.deps.scheduleRender();
   }
@@ -140,5 +169,66 @@ export class FindController {
   private scrollToMatch(): void {
     const idx = this.findMatches[this.findPos];
     if (idx != null) this.deps.scrollIndexIntoView(idx);
+  }
+
+  // Paint the match ticks. Positions depend only on the match set and row
+  // count (not scroll), so this runs on match changes and resize — never on
+  // scroll. Bounded DOM: tickPositions dedupes to whole pixels, and the
+  // current match gets one extra, distinct tick drawn on top.
+  private renderGutter(): void {
+    const g = this.findGutter;
+    if (!g) return;
+    const n = this.deps.getRows().length;
+    if (!this.findMatches.length || !n) {
+      g.classList.remove("jv-open");
+      g.replaceChildren();
+      return;
+    }
+    g.classList.add("jv-open");
+    g.style.right = `${this.deps.scrollbarWidth()}px`;
+    const trackH = g.clientHeight;
+    const frag = document.createDocumentFragment();
+    for (const y of tickPositions(this.findMatches, n, trackH)) {
+      const tick = document.createElement("div");
+      tick.className = "jv-find-tick";
+      tick.style.top = `${y}px`;
+      frag.appendChild(tick);
+    }
+    const currentIdx = this.findMatches[this.findPos];
+    if (currentIdx != null && trackH > 0) {
+      const cur = document.createElement("div");
+      cur.className = "jv-find-tick jv-find-tick-current";
+      cur.style.top = `${Math.round((currentIdx / n) * (trackH - 1))}px`;
+      frag.appendChild(cur);
+    }
+    g.replaceChildren(frag);
+  }
+
+  // Click on the gutter: jump to the nearest match within a few px, else scroll
+  // the viewport to the clicked fraction. The nearest-match search is over the
+  // match indices (not the deduped ticks) so it lands on a real match.
+  private onGutterClick(e: MouseEvent): void {
+    if (!this.findMatches.length) return;
+    const rect = this.findGutter.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const trackH = rect.height;
+    if (trackH <= 0) return;
+    const n = this.deps.getRows().length || 1;
+    let best = -1;
+    let bestDist = Infinity;
+    for (let k = 0; k < this.findMatches.length; k++) {
+      const d = Math.abs((this.findMatches[k] / n) * (trackH - 1) - y);
+      if (d < bestDist) { bestDist = d; best = k; }
+    }
+    const HIT_SLOP = 6; // px
+    if (best >= 0 && bestDist <= HIT_SLOP) {
+      this.findPos = best;
+      this.updateFindCount();
+      this.renderGutter();
+      this.scrollToMatch();
+      this.deps.scheduleRender();
+    } else {
+      this.deps.scrollToFraction(y / trackH);
+    }
   }
 }

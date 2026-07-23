@@ -66,6 +66,30 @@ export function searchableText(label: string | null, kind: Kind, value: Json): s
   return s.trim().length ? s.toLowerCase() : "";
 }
 
+// Vertical pixel offsets for find-match ticks on the scrollbar gutter. Each
+// match row `idx` maps to `(idx / rowCount) * (trackH - 1)`, and offsets are
+// deduplicated to whole pixels so the tick DOM stays bounded by the track
+// height no matter how many rows matched (a filter-less find can match a huge
+// document). Returns [] for a degenerate track or empty match set. Offsets come
+// out in first-seen order, mirroring the ascending match indices.
+export function tickPositions(
+  matches: readonly number[],
+  rowCount: number,
+  trackH: number,
+): number[] {
+  if (rowCount <= 0 || trackH <= 0 || matches.length === 0) return [];
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const idx of matches) {
+    const y = Math.round((idx / rowCount) * (trackH - 1));
+    if (!seen.has(y)) {
+      seen.add(y);
+      out.push(y);
+    }
+  }
+  return out;
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;

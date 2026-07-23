@@ -227,6 +227,36 @@ html.jv-active {
   z-index: 5;
 }
 .jv-find.jv-open { display: flex; }
+
+/* Match gutter: a thin strip pinned to the right edge of the tree, inset (via
+   inline `right`) flush-left of the native scrollbar. Only shown during a find
+   with matches. Ticks are absolutely placed by pixel offset (see renderGutter);
+   the current match gets a wider, opaque tick. */
+.jv-find-gutter {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  z-index: 2;
+  cursor: pointer;
+}
+.jv-find-gutter.jv-open { display: block; }
+.jv-find-tick {
+  position: absolute;
+  right: 1px;
+  width: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--jv-num) 55%, transparent);
+}
+.jv-find-tick-current {
+  right: 0;
+  width: 8px;
+  height: 3px;
+  background: var(--jv-num);
+}
 .jv-find-input {
   font: inherit;
   color: var(--jv-fg);

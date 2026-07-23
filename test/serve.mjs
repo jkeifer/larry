@@ -10,6 +10,16 @@ createServer(async (req, res) => {
     res.end(JSON.stringify({ big: Array.from({ length: 250000 }, (_, i) => i) }));
     return;
   }
+  // A document tall enough to scroll, with a term ("href") that matches rows
+  // spread throughout — exercises the find gutter (many ticks) and the pinned
+  // find bar (stepping/clicking scrolls the viewport far).
+  if (req.url === "/many.json") {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(
+      Array.from({ length: 400 }, (_, i) => ({ id: i, href: `https://example.com/${i}` })),
+    ));
+    return;
+  }
   // NDJSON served as application/json — the realistic trigger for larry's
   // NDJSON fallback, since the activation gate only fires for that
   // content-type (whereas /sample.ndjson above is served as text/plain and

@@ -8,6 +8,7 @@ import {
   searchableText,
   pathToJq,
   startsWithJsonChar,
+  tickPositions,
 } from "../../src/core";
 
 describe("kindOf", () => {
@@ -40,6 +41,33 @@ describe("spliceInto", () => {
     expect(base[1]).toBe(0);
     expect(base[70000]).toBe(69999);
     expect(base[70001]).toBe(-1);
+  });
+});
+
+describe("tickPositions", () => {
+  it("maps a match index to its fraction of the track (using trackH - 1)", () => {
+    // first row -> 0, last row -> full track, middle -> half
+    expect(tickPositions([0], 100, 101)).toEqual([0]);
+    expect(tickPositions([99], 100, 101)).toEqual([99]);
+    expect(tickPositions([50], 100, 101)).toEqual([50]);
+  });
+
+  it("dedupes to whole pixels so many matches stay bounded by the track", () => {
+    // 10000 consecutive matches on a 100px track collapse to <= 100 ticks
+    const matches = Array.from({ length: 10000 }, (_, i) => i);
+    const ticks = tickPositions(matches, 10000, 100);
+    expect(ticks.length).toBeLessThanOrEqual(100);
+    expect(new Set(ticks).size).toBe(ticks.length); // no duplicates
+  });
+
+  it("preserves first-seen (ascending) order", () => {
+    expect(tickPositions([0, 250, 500, 999], 1000, 1001)).toEqual([0, 250, 500, 999]);
+  });
+
+  it("returns [] for degenerate inputs", () => {
+    expect(tickPositions([], 100, 100)).toEqual([]);
+    expect(tickPositions([1, 2], 0, 100)).toEqual([]);
+    expect(tickPositions([1, 2], 100, 0)).toEqual([]);
   });
 });
 

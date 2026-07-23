@@ -122,6 +122,15 @@ html.jv-active {
 .jv-example-desc { color: var(--jv-muted); }
 .jv-examples-note { display: block; color: var(--jv-muted); padding: 6px 6px 0; font-style: italic; }
 
+/* Non-scrolling positioning context wrapping the scroller: the find bar (and
+   the find match gutter) are pinned to it, so they stay put instead of
+   scrolling away with the tree when a match scrolls the viewport. */
+.jv-tree-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
 .jv-scroller {
   flex: 1 1 auto;
   overflow: auto;

@@ -166,10 +166,14 @@ import { text, button, spacer, flash } from "./dom";
       const app = document.createElement("div");
       app.className = "jv-app";
       const tree = this.buildTree();
-      // The find bar anchors to the scroller (position: relative), overlaying
-      // the tree's top-right corner.
-      this.scroller.appendChild(this.find.buildBar());
-      app.append(this.buildToolbar(), this.buildQueryBar(), tree);
+      // The find bar lives in a non-scrolling wrapper around the scroller (the
+      // wrapper is the position:relative context) so it stays pinned to the
+      // top-right corner instead of scrolling away with the tree content when a
+      // match scrolls the viewport.
+      const treeWrap = document.createElement("div");
+      treeWrap.className = "jv-tree-wrap";
+      treeWrap.append(tree, this.find.buildBar());
+      app.append(this.buildToolbar(), this.buildQueryBar(), treeWrap);
 
       // Replace the page body wholesale with our UI.
       const body = document.body || document.documentElement.appendChild(document.createElement("body"));
